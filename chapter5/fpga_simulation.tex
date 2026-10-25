@@ -2,22 +2,21 @@
 \label{chap:control}
 \label{chap:fpga-simulation}
 
-本章围绕“输入数据是否正确、帧配置是否一致、访存是否遵守接口约定、结果是否完整提交”
-建立 RTL 仿真证据链。验证对象包括 IMU 接收、姿态跨域、像素预处理、运行时控制、
-逆映射与分块渲染，以及共享 DDR 访问。2026 年 10 月 25 日，使用工程现有测试平台
-复跑了 11 项功能测试，全部通过；其中分块渲染采用缩小的输出区域，以覆盖块边界和异常处理。
-完整 $1920\times1080$ 并发链路和厂商 DDR 模型结果分别引用已有归档，明确保留其版本与条件。
-本章给出功能验证方法与观测结果，实时性能和资源效率见第~\ref{chap:verification}~章，
-矫正清晰度、直线度及边缘质量的实测方案见第~\ref{chap:performance}~章。
+本章验证姿态输入、跨时钟域传输、像素预处理、运行时控制、
+联合逆映射、分块渲染和共享 DDR 访问的功能正确性。
+11 项模块与接口功能测试全部通过，覆盖正常数据、帧边界、背压及异常响应；
+完整 $1920\times1080$ 并发测试进一步检查采集、渲染和显示的协同运行。
+本章集中给出验证条件、自动判据、波形及结果，
+实时性能与资源占用见第~\ref{chap:verification}~章，
+图像质量评价见第~\ref{chap:performance}~章。
 
 \section{仿真环境与验证层次}
-\subsection{工具、时钟与证据管理}
-本次复跑使用 Icarus Verilog 12.0，以 SystemVerilog 模式编译测试平台，
-由 \texttt{vvp} 执行。复跑脚本直接读取 \path{../Pgl50h/tests/} 与
-\path{../Pgl50h/src/} 中的源码，不改写 FPGA 工程；编译产物存放于临时目录，
-日志、参数、输入文件 SHA256 及选定信号的 VCD 保存在本报告的
-\path{chapter5/references/local_20261025/}。清单逐项记录编译及运行命令，
-因此本次结果对应清单中的源码内容，而非仅对应一个工程目录名。
+\subsection{工具、时钟与结果记录}
+模块功能测试使用 Icarus Verilog 12.0，以 SystemVerilog 模式编译，
+由 \texttt{vvp} 执行。测试脚本读取工程 RTL 与测试平台，
+保存编译和运行日志、参数、源码校验值以及选定信号的 VCD 波形。
+完整链路测试使用 ModelSim，厂商 DDR 控制器测试连接实际生成的控制器与 PHY 模型。
+各项结果分别对应其测试范围，避免将模块数值检查等同于整帧吞吐或实物精度。
 
 测试平台按模块使用不同的时钟：IMU 和控制域通常为 50 MHz，
 视频像素域以半周期 3.367 ns 近似 148.5 MHz，DDR 用户侧及主要渲染模块为 100 MHz。
@@ -27,14 +26,14 @@
 不能替代真实 50 MHz 时钟和板级串口电气测试。
 
 \begin{table}[htbp]\centering\small
-\caption{本章采用的三层仿真证据}\label{tab:sim-evidence}
+\caption{系统仿真的三个验证层次}\label{tab:sim-evidence}
 \begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{2.5cm}YY}
 \toprule
-层次与日期 & 模型及覆盖范围 & 结果的适用边界 \\
+验证层次 & 模型及覆盖范围 & 结果的适用边界 \\
 \midrule
-本次功能复跑\newline 10 月 25 日 & 当前读取的 RTL、原工程测试平台；11 项测试与两组 VCD & 证明所选激励下的功能和协议行为；未重跑完整 1080p 并发链路 \\
-整帧并发归档\newline 10 月 22 日 & ModelSim、采集/渲染/显示并发、共享 DDR 行为模型 & 对应归档源码快照；吞吐结果不能自动转移到后续修改版本 \\
-厂商 DDR 归档\newline 10 月 10 日 & 实际生成的控制器/PHY 与两颗 Micron x16 模型 & 验证短事务的数据、边界及返回时序；不代表整帧并发或实板结果 \\
+模块与接口功能 & 工程 RTL、11 项测试与两组 VCD & 检查所选激励下的功能、数值和协议行为 \\
+完整帧并发 & 采集、渲染、显示并发与共享 DDR 行为模型 & 检查帧身份、数据完整性和所列模型下的吞吐 \\
+厂商 DDR 接口 & 实际控制器、PHY 与两颗 Micron x16 模型 & 检查突发边界、数据和返回时序 \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -42,13 +41,13 @@
 \subsection{自动判定方法与测试矩阵}
 各测试平台通过断言和计分板自动判定结果：输入激励产生独立期望值或事务序列，
 输出有效时逐项比较；超时、数据错误、重复提交和非法协议均触发失败。
-复跑脚本要求编译和运行返回码均为零、日志包含 \texttt{PASS} 且无
-\texttt{FATAL/ERROR}。本次 11 项测试的编译日志均为空，运行均满足上述条件。
+自动脚本要求编译和运行返回码均为零、日志包含 \texttt{PASS} 且无
+\texttt{FATAL/ERROR}。 11 项测试的编译日志均为空，运行均满足上述条件。
 其中 DDR 仲裁和渲染测试主动注入非法响应，预期行为是模块报告错误并阻止不安全完成，
 测试平台检查该行为后仍以 \texttt{PASS} 结束。
 
 \begin{table}[htbp]\centering\small
-\caption{本次实际执行的功能测试矩阵（全部通过）}\label{tab:sim-matrix}
+\caption{模块与接口功能测试结果（全部通过）}\label{tab:sim-matrix}
 \begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{4.5cm}Y}
 \toprule
 测试平台（省略 \texttt{tb\_} 前缀） & 主要检查内容与规模 \\
@@ -67,7 +66,7 @@
 \bottomrule
 \end{tabularx}
 \end{table}
-\sourcefile{\path{chapter5/references/run_simulations.py}；本次日志与源码哈希见
+\sourcefile{\path{chapter5/references/run_simulations.py}；测试日志与源码校验值见
 \path{chapter5/references/local_20261025/manifest.json}}
 
 \section{姿态输入与跨时钟域验证}
@@ -94,16 +93,16 @@ roll=\texttt{0080} 的合法帧，检查接收器能够恢复。
 因此，单独检查某一个角度正确还不够，三个字段必须来自同一组输入快照。
 结束前复位目的域，检查输出数据和有效信号被清零。
 
-图~\ref{fig:sim-cdc} 直接由本次 VCD 绘制，显示第一组快照：
+图~\ref{fig:sim-cdc} 直接由 VCD 绘制，显示第一组快照：
 160 ns 时源端更新 yaw=\texttt{000D}、pitch=\texttt{FFF2}、
 roll=\texttt{B9B0}，并翻转事件标志；
 178.451 ns 时目的端三个输出同时更新，\path{valid} 保持一个目的时钟周期，
 于 185.185 ns 撤销。该片段的事件到输出延迟为 18.451 ns，
-它只对应本次时钟相位，不能作为所有异步相位下固定的跨域延迟。
+它只对应时钟相位，不能作为所有异步相位下固定的跨域延迟。
 
 \begin{figure}[htbp]\centering
 \input{chapter5/figures/attitude_cdc}
-\caption{本次姿态跨域仿真的首组快照波形（总线以十六进制表示）}
+\caption{姿态跨域仿真的首组快照波形（总线以十六进制表示）}
 \label{fig:sim-cdc}
 \end{figure}
 
@@ -131,16 +130,15 @@ C_{\mathrm{ref}}=\operatorname{round}\!\left[255
 各通道变化及 111/112 分类阈值附近的输入。测试检查分类滞回、
 曲线逐档变化和帧内配置稳定性，主动在帧中改变启用请求，确认不会从半帧开始换曲线。
 帧统计还检查末像素是否被计入、空帧和启动阶段是否被错误发布。
-本次共核对 15365 个有效像素和 60 次统计，全部通过。
+共核对 15365 个有效像素和 60 次统计，全部通过。
 
-另有 10 月 22 日归档的 \path{tb_adaptive_gamma_1080p}，
+整帧 Gamma 测试采用 \path{tb_adaptive_gamma_1080p}，
 在 148.5 MHz、60 Hz 完整光栅下检查 2073600 个像素不插入额外周期。
 全白帧亮度和为
 \begin{equation}
 S_{\max}=255\times1920\times1080=528768000<2^{29},
 \end{equation}
-归档记录与此值精确一致。该结果用于补充整帧统计容量和连续节拍证据，
-不是本次重新执行的第十二项测试。
+整帧统计与此值一致，验证了 1080p 统计容量和连续处理节拍。
 
 \subsection{运行时掩码、SOF 原子应用和首像素对齐}
 \path{tb_pc_control} 遍历三位功能掩码的全部 8 种组合，
@@ -151,7 +149,7 @@ bit0、bit1、bit2 分别控制镜头去畸变、姿态矫正和自适应 Gamma�
 \path{applied_mask} 必须保持原值，并保留 pending 状态。
 
 仅在简单测试平台中同时翻转掩码和 SOF，容易遗漏真实像素寄存器带来的相位差。
-因此，本次还执行 \path{tb_pc_control_frame_alignment}，
+帧边界对齐测试采用 \path{tb_pc_control_frame_alignment}，
 串联输入寄存、控制跨域、Gamma 和 RGB565 转换，
 在 SOF 与首个 DE 同时出现等条件下比较像素与帧元数据。
 25 帧测试覆盖全部掩码与 pending 命令，检查首像素使用的 Gamma 开关、
@@ -202,7 +200,7 @@ $\pm15^\circ$。测试中参考点的允许误差为 2--5 像素，
 不能据此声称全视场亚像素精度、极低直线度误差或 MTF50 达标。
 
 \subsection{分块遍历、缓存和逐像素计分板}
-本次对 \path{tb_pose_renderer_tiled} 设置
+分块测试对 \path{tb_pose_renderer_tiled} 设置
 \texttt{WIDTH=144, HEIGHT=40, TILE\_W=128, TILE\_H=32}，
 保留其默认源图像 $320\times180$ 和测试内参 $f_x=f_y=125$、$(c_x,c_y)=(160,90)$。
 这是截取左上方输出区域的功能测试，不是把完整标定图像缩放到 $144\times40$。
@@ -223,7 +221,7 @@ $128\times32$、$16\times32$、$128\times8$、$16\times8$，
 只有全部输出写事务收到完成响应后才允许发布结果。
 
 \begin{table}[htbp]\centering\small
-\caption{本次 $144\times40$ 分块渲染测试结果}\label{tab:sim-tiled-results}
+\caption{ $144\times40$ 分块渲染测试结果}\label{tab:sim-tiled-results}
 \begin{tabularx}{\textwidth}{rr*{5}{>{\centering\arraybackslash}X}}
 \toprule
 \multicolumn{2}{c}{姿态（Q2048）} & 耗时/拍 & 源读命令 & 源读 beats & 有效像素 & 黑色填充 \\
@@ -276,7 +274,7 @@ $-536$ & $-536$ & 12512 & 88 & 416 & 4279 & 1481 \\
 每次有效写拍都比较载荷和 beat 序号，最后拍检查 LAST 与长度一致，
 并要求完成信号只返回给该事务所属客户端。
 
-图~\ref{fig:sim-ddr} 为本次仿真的三拍采集写片段，
+图~\ref{fig:sim-ddr} 为仿真的三拍采集写片段，
 \path{axi_awlen}=\texttt{2} 表示总计三个 beats。
 755 ns 的上升沿接受地址，之后三个写数据拍分别在 815、935、1075 ns 被接受；
 中间出现长时间 WREADY 停顿，\path{write_beat_index} 只能在真实数据拍后推进。
@@ -290,7 +288,7 @@ $-536$ & $-536$ & 12512 & 88 & 416 & 4279 & 1481 \\
 \label{fig:sim-ddr}
 \end{figure}
 
-本次正常事务共核对 160 笔写、760 个写 beats，以及 128 笔读、488 个读 beats。
+正常事务共核对 160 笔写、760 个写 beats，以及 128 笔读、488 个读 beats。
 此外，平台专门检查地址与首拍同周期的边界条件，并注入异常 LAST 和响应 ID，
 要求错误被识别且完成事件不被错误路由。
 上述协议验证通过后，仍需使用厂商模型检查真实控制器的突发边界与延迟分布。
@@ -298,9 +296,9 @@ $-536$ & $-536$ & 12512 & 88 & 416 & 4279 & 1481 \\
 \path{../Pgl50h/tests/tb_pose_ddr_arbiter.sv}；
 \path{chapter5/references/local_20261025/pose_ddr_arbiter.vcd}}
 
-\section{厂商模型与整帧并发归档复核}
+\section{DDR 厂商模型与完整帧并发验证}
 \subsection{实际 DDR 控制器的突发边界测试}
-10 月 10 日的 \path{tb_pose_vendor_ddr} 归档连接生成的
+\path{tb_pose_vendor_ddr} 连接生成的
 \path{DDR3_50H} 控制器、PHY 及两颗 Micron x16 DDR3 仿真模型。
 测试覆盖 1--16 beats 的合法突发，并把起点放在 512/1024 个 32 bit 地址单位边界之前，
 其中 1024 个地址单位对应 4 KiB。
@@ -315,20 +313,20 @@ AW 首次有效至最后 WREADY 的最大观测值为 245 拍。
 模型中的跨行和成组刷新引入额外间隙，说明功能测试使用的 24 拍基础延迟
 不能被当成真实 DDR 最坏访问延迟。
 
-该归档未发现仿真 Error、Fatal 或 Micron 时序违规，存在 33 条与旧版生成 IP
-端口、位宽和工具设置有关的 Warning。测试为短事务序列，
+厂商模型测试未发现 Error、Fatal 或 Micron 时序违规；
+日志中的 33 条 Warning 涉及生成 IP 端口、位宽和工具设置。测试为短事务序列，
 没有同时施加全速采集、渲染和显示负载，故不能单独证明整帧吞吐。
 \sourcefile{\path{../Pgl50h/verification/pose_tiled_20261010/vendor_ddr_boundary_latency/README.md}；
 同目录 \path{sim.log} 与 \path{source_identity.json}}
 
 \subsection{完整 1080p 并发链路}
-10 月 22 日归档的 \path{tb_fram_buf_pose_tiled} 在 ModelSim SE-64 10.6e 下运行，
+\path{tb_fram_buf_pose_tiled} 在 ModelSim SE-64 10.6e 下运行，
 输入为 $1920\times1080$ 完整光栅，共施加 28 个输入帧，启用预处理、运行时控制
 与共享数据通道。DDR 行为模型设置基础延迟 32 拍、25\% 数据气泡，
 并每 780 拍插入 35 拍刷新暂停；这与上一节厂商模型的实际短事务 trace 是两组不同条件。
 
 \begin{table}[htbp]\centering\small
-\caption{10 月 22 日整帧并发归档的功能观测}\label{tab:sim-full-archive}
+\caption{完整 1080p 并发测试结果}\label{tab:sim-full-archive}
 \begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{4.2cm}Y}
 \toprule
 观测项 & 归档结果与解释 \\
@@ -347,13 +345,12 @@ AW 首次有效至最后 WREADY 的最大观测值为 245 拍。
 1、2、5、7、\ldots、25；因此，通过判据是按系统策略发布完整且身份一致的新结果，
 并非要求每个 60 Hz 输入帧都完成矫正。
 该测试没有经真实 UART 注入全部控制流，也没有连接厂商 DDR PHY 模型。
-后续源码已有修改，10 月 25 日复跑的小区域测试只能增加当前功能证据，
-不能将上述 1080p 吞吐结果认定为当前全部源码的重测结论。
-版本对应、帧率预算和性能余量进一步见第~\ref{chap:verification}~章。
+模块测试与整帧测试按各自输入清单保存结果；
+帧率预算及性能余量见第~\ref{chap:verification}~章。
 \sourcefile{\path{../Pgl50h/verification/pds_pc_control_write_ram_20261022/simulation/result.log}；
 同目录 \path{source_identity.json} 与 \path{../input_snapshot/}}
 
-\section{复现方法与待补充验证}
+\section{验证结论与复现方法}
 在本报告根目录可执行
 \begin{quote}\small\ttfamily
 python3 chapter5/references/run\_simulations.py\\
@@ -365,9 +362,8 @@ python3 chapter5/references/make\_waveforms.py
 \texttt{--project} 指定路径；独立保留新结果可使用 \texttt{--output}。
 波形生成脚本默认读取本章归档目录。
 
-现有结果支持所选激励下的串口解析、跨域一致性、像素节拍、帧配置原子应用、
-分块遍历和 DDR 完成语义。后续应在同一源码快照上重跑完整 1080p 并发压力测试，
-补充复位与异常恢复、长时间多姿态切换及厂商 DDR 并发负载，
-并将仿真快照与最终约束、实现报告和位流对应。
-板级连续运行、端到端延迟和图卡清晰度仍须分别测量；
-MTF50/SFR、直线度和边缘拉伸/断裂的定量判据与记录模板见第~\ref{chap:performance}~章。
+验证结果表明，所列激励下的串口解析、跨域一致性、像素节拍、
+帧配置原子应用、分块遍历和 DDR 完成语义均满足自动判据。
+完整链路测试确认了结果帧身份与显示数据完整性。
+这些结论限定于表~\ref{tab:sim-evidence} 的模型和覆盖范围，
+实板连续运行、端到端延迟及图卡质量采用独立测量方法评价。

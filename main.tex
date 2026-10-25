@@ -18,18 +18,11 @@
 \usetikzlibrary{arrows.meta,positioning,fit,calc}
 \usepackage{xurl}
 \usepackage[unicode,hidelinks,bookmarksnumbered,hypertexnames=false]{hyperref}
-\hypersetup{pdftitle={基于紫光同创 FPGA 的任意角度畸变矫正系统——报告模板},
-  pdfauthor={参赛团队（待填写）}}
+\hypersetup{pdftitle={基于紫光同创 FPGA 的任意角度畸变矫正系统设计报告},
+  pdfauthor={参赛团队}}
 \definecolor{TemplateBlue}{RGB}{22,75,114}
 \definecolor{TemplateGray}{RGB}{245,247,249}
-\newcommand{\fillin}[1]{\textcolor{TemplateBlue}{【待补充：#1】}}
 \newcommand{\sourcefile}[1]{\par\noindent{\footnotesize\textcolor{gray}{工程依据：}#1}\par}
-\newcommand{\guide}[1]{\par\smallskip\noindent\textcolor{TemplateBlue}{\textbf{撰写提示：}#1}\par\smallskip}
-\newcommand{\figplaceholder}[2]{%
-  \begin{figure}[htbp]\centering
-  \fcolorbox{TemplateBlue}{TemplateGray}{%
-    \parbox[c][3.1cm][c]{0.88\textwidth}{\centering\color{TemplateBlue}待插入图片\\[0.6em]#2}}
-  \caption{#1}\end{figure}}
 \newcolumntype{Y}{>{\raggedright\arraybackslash}X}
 \renewcommand{\arraystretch}{1.25}
 \setlength{\parindent}{2em}
@@ -40,7 +33,7 @@
 \pagestyle{fancy}
 \fancyhf{}
 \fancyhead[L]{\small 任意角度畸变矫正系统设计报告}
-\fancyhead[R]{\small 章节模板}
+\fancyhead[R]{\small 项目设计报告}
 \fancyfoot[C]{\thepage}
 \begin{document}
 \begin{titlepage}
@@ -52,20 +45,16 @@
   \vspace{2cm}
   {\Huge\bfseries 基于紫光同创 FPGA 的\par 任意角度畸变矫正系统\par}
   \vspace{0.7cm}
-  {\LARGE 设计报告模板\par}
+  {\LARGE 项目设计报告\par}
   \vspace{1.4cm}
   \begin{tabular}{rl}
-    作品名称： & \fillin{正式作品名称} \\
-    参赛学校： & \fillin{学校及学院} \\
-    队伍编号： & \fillin{队伍编号} \\
-    团队成员： & \fillin{姓名与分工} \\
-    指导教师： & \fillin{姓名} \\
-    文档版本： & V0.1（工程定制模板） \\
-    整理日期： & 2026 年 10 月 25 日
+    作品名称： & 基于 FPGA 的图像畸变与姿态矫正系统 \\
+    报告类别： & 项目设计与验证报告 \\
+    报告日期： & 2026 年 10 月 25 日
   \end{tabular}
   \vfill
-  {\small 工程基线：Pgl50h / 2026-10-22 CP2102 版本\par}
-  {\small 本模板预填工程已有证据，实板测评数据需另行补充。\par}
+  {\small 实现平台：PGL50H FPGA / MES50HP 开发板\par}
+  {\small 系统设计、算法部署与验证结果\par}
 \end{titlepage}
 \pagenumbering{Roman}
 \input{frontmatter/abstract}

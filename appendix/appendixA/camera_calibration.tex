@@ -4,9 +4,9 @@
 相机标定为镜头去畸变和姿态逆映射提供焦距、主点及畸变系数。
 本附录给出基于 MATLAB Computer Vision Toolbox 的单目标定流程，
 说明标定结果如何与第三章算法、FPGA 参数和上位机评估保持一致。
-已有工程保存了 2026 年 9 月 30 日确认的参数，但尚未提供完整的原始棋盘格数据集、
-标定会话和逐图重投影误差。因此，本附录引用已有参数，
-新增操作步骤和导出程序用于复现；未填写的采集条件与误差不视为已完成测量。
+系统采用表~\ref{tab:app-calibration-parameters} 所列标定参数。
+原始棋盘格数据集、标定会话与逐图重投影误差记录不完整，
+相关采集信息与误差指标据实列为未记录。
 
 \section{标定对象、图卡与采集条件}
 \subsection{固定实际成像链路}
@@ -28,21 +28,21 @@ $9\times6$ 个内角点。两者必须核对，不能把相同数字直接复制
 \caption{相机标定采集记录}\label{tab:app-calibration-capture}
 \begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{3.5cm}Y}
 \toprule
-项目 & 本工程依据与补充记录 \\
+项目 & 系统配置与记录状态 \\
 \midrule
-相机与镜头 & AR0234 相机链路；\fillin{设备序列号、镜头型号、焦距及对焦状态} \\
-图像尺寸 & 当前参数用于 $1920\times1080$；\fillin{驱动格式与是否存在裁切、缩放} \\
-棋盘格 & \fillin{方格行列数、内角点行列数、实测方格边长及平整度} \\
-采集环境 & \fillin{照明、距离范围、曝光、增益及拍摄日期} \\
-数据规模 & \fillin{原始图像数、检测成功数、最终使用数及剔除原因} \\
-工具版本 & \fillin{MATLAB 与 Computer Vision Toolbox 版本、会话文件路径} \\
+相机与镜头 & AR0234 相机链路；镜头与设备标识未记录 \\
+图像尺寸 & 当前参数用于 $1920\times1080$；未记录 \\
+棋盘格 & 未记录 \\
+采集环境 & 未记录 \\
+数据规模 & 未记录 \\
+工具版本 & 未记录 \\
 \bottomrule
 \end{tabularx}
 \end{table}
 
 \subsection{覆盖画面与姿态变化}
-建议先采集约 15--25 张清晰图像作为起始数据集，具体数量由覆盖程度和估计稳定性决定，
-不将该建议数量当作本工程的既有采集记录。
+标定流程以约 15--25 张清晰图像作为初始采样方案，
+实际图像数量由画面覆盖与参数估计稳定性确定。
 让棋盘格依次覆盖画面中心、四边与四角，同时改变板到相机的距离和绕两个方向的倾斜。
 避免所有图像都正对相机、位于中心或仅绕光轴旋转，因为这些姿态对部分内参约束较弱。
 
@@ -59,8 +59,8 @@ Camera Calibrator，按以下顺序操作；菜单名称可能随版本变化\ci
 核对自动检测出的角点阵列、棋盘方向和图像尺寸，剔除检测错误或模糊图像。
 \item 选择与 FPGA 对应的模型：不估计 skew，径向系数数量设为 2，
 即 $k_1,k_2$；切向项是否估计需记录。
-若为了匹配既有基线固定 $p_1=p_2=0$，应明确这是求解设置，
-不能仅凭导出结果为零推断镜头不存在偏心畸变。
+系统所用切向系数为 $p_1=p_2=0$；求解时是否固定该参数须由标定会话确认。
+零系数本身不作为镜头无偏心畸变的物理结论。
 \item 执行 Calibrate，查看每张图的重投影误差和相机/标定板外参分布。
 检查大误差是否与模糊、反光、板材弯曲或某个画面区域相关，
 保留剔除原因，不能只为减小平均误差反复删除边角样本。
@@ -78,7 +78,7 @@ Camera Calibrator，按以下顺序操作；菜单名称可能随版本变化\ci
 这些外参描述拍摄时标定板相对相机的关系，不是运行时 IMU 输出，
 也不等于 IMU 与相机之间的固定安装旋转。
 
-\section{模型、误差指标与已有参数}
+\section{标定模型、误差指标与系统参数}
 \subsection{模型与重投影误差}
 采用第三章的列向量内参约定，
 \begin{equation}
@@ -106,28 +106,26 @@ e_{\mathrm{RMS}}=
 还应检查独立验证图像、参数稳定性及实际直线度；
 标定重投影误差也不能替代第~\ref{chap:performance}~章的 MTF50/SFR 测量。
 
-\subsection{工程已确认的参数}
+\subsection{系统采用的标定参数}
 \begin{table}[htbp]\centering\small
-\caption{已有 MATLAB 标定参数及坐标约定}\label{tab:app-calibration-parameters}
+\caption{相机标定参数及坐标约定}\label{tab:app-calibration-parameters}
 \begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{3.4cm}YY}
 \toprule
-参数 & 已有记录 & 含义 \\
+参数 & 数值 & 含义 \\
 \midrule
 图像尺寸 & $1080\times1920$（高$\times$宽） & 与工程全幅输入一致 \\
 $f_x,f_y$ & $748.4469,\ 748.0773$ & 像素焦距 \\
 $c_x,c_y$ & $944.9033,\ 522.3963$ & MATLAB 一起点主点坐标 \\
 $k_1,k_2$ & $0.0099,\ -0.0434$ & 径向系数，无量纲 \\
-$p_1,p_2$ & $0,\ 0$ & 当前切向系数；原始估计设置需补充 \\
+$p_1,p_2$ & $0,\ 0$ & 切向系数；原始求解设置未记录 \\
 输出内参 & 与输入相同 & 当前不另做裁切或焦距调整 \\
-标定误差与样本数 & \fillin{恢复会话后填写} & 不能从参数 JSON 推得 \\
+标定误差与样本数 & 未记录 & 参数文件不含该统计 \\
 \bottomrule
 \end{tabularx}
 \end{table}
 
-表~\ref{tab:app-calibration-parameters} 来自已有 MATLAB 参数文本与 FPGA 标定 JSON，
-两者一致；并非本次新采集、新求解的标定结果。
-原仿真目录还含 $1440\times1080$ 的历史图像或结果，
-不能将其与当前 $1920\times1080$ 参数未经转换地混用。
+表~\ref{tab:app-calibration-parameters} 的 MATLAB 参数文本与 FPGA 标定 JSON 一致，
+适用于 $1920\times1080$ 输入及对应像素坐标约定。
 \sourcefile{\path{chapter3/reference/undistort/para.txt}；
 \path{../Pgl50h/calibration/camera_20260930.json}}
 
@@ -142,8 +140,8 @@ export\_camera\_calibration(cameraParams, 'calibration\_export');
 MAT 文件保留工具箱对象；JSON 保存 MATLAB 形式的内参、两项径向系数、
 两项切向系数、图像高宽和像素起点声明，可由附录~\ref{app:pc-host}~的上位机读取。
 该导出配置要求零 skew、两个径向系数，避免默默丢弃第三个径向项。
-程序是本次新增的辅助工具，尚无在 MATLAB 中成功执行的验证记录；
-正式归档应保留实际执行输出，不能把程序示例当作标定完成证据。
+导出程序用于统一数据格式，未列入已执行的 MATLAB 验证项目。
+系统采用的标定数值来自表~\ref{tab:app-calibration-parameters} 的参数文件。
 
 JSON 的关键字段与现有工程一致：
 \begin{table}[htbp]\centering\small
@@ -189,13 +187,13 @@ FPGA 可以在建立视线时将零起点像素加 1，或使用主点减 1 后�
 上位机导入 JSON 只更新 PC 侧参考，不会向 FPGA 下载标定参数。
 更换标定后，应同时核对软件参考、RTL 中的定点常量、有效视场和分块缓存窗口，
 运行相应功能回归与完整链路测试，再生成新的实现报告和位流。
-当前工程保留了多种历史缓存/渲染路径，不能仅更新旧路径的表生成程序就认为默认路径已经更新。
+参数集成对象为默认联合逆投影器及其调用参数，确保软件参考与硬件常量一致。
 
-建议每次标定归档原始图像、文件清单、图卡尺寸、采集条件、工具箱会话、
+标定数据记录包括原始图像、文件清单、图卡尺寸、采集条件、工具箱会话、
 MAT 对象、JSON、残差图及独立验证结果，并保存参数文件 SHA256。
-最终实验记录再关联 FPGA 源码、约束和位流版本。
-\fillin{补充 Camera Calibrator 角点检测、重投影误差与外参分布截图，
-以及中心和四角的独立验证图；当前不填入无来源的误差数值。}
+测量结果与 FPGA 源码、约束和配置位流关联。
+原始角点检测、重投影残差、外参分布及独立验证图未纳入现有记录，
+因此本附录不报告标定 RMS 或样本数的数值结论。
 \sourcefile{\path{appendix/appendixA/export_camera_calibration.m}；
 \path{../PC/fpga_host/evaluation/calibration.py}；
 \path{chapter3/reference/common/simulation_config.m}}

@@ -6,7 +6,7 @@ IMU 姿态显示和图卡评估入口。本附录依据 \path{../PC/} 中的 Pyt
 介绍软件结构、关键实现与联调方法。
 软件以 Python 3.10 及以上版本、PySide6/Qt 为界面基础，
 通过 OpenCV、NumPy 和 pyserial 完成图像分析、模型变换及串口通信。
-现有版本为 0.1.0，使用的模型、协议和参考资料保存在 \path{Device/} 中。
+模型、协议和接口资料保存在 \path{Device/} 中。
 
 \section{功能范围与设备连接}
 \subsection{两路视频与两条串口}
@@ -262,18 +262,18 @@ python -m fpga\_host --config ./settings.json
 采用明确的去畸变开关和输入几何设置，保存全分辨率图像与 JSON。
 \end{enumerate}
 
-\subsection{本次软件测试结果}
-2026 年 10 月 25 日，使用 PC 工程已有虚拟环境，在 Qt offscreen 模式执行
+\subsection{软件测试结果}
+软件测试在 Python 虚拟环境与 Qt offscreen 模式下执行
 \begin{quote}\small\ttfamily
 QT\_QPA\_PLATFORM=offscreen \textbackslash{}\\
 python -B -m unittest discover -s tests -v
 \end{quote}
 该命令在 PC 工程根目录运行，反斜杠表示 shell 续行。
-本次 51 项测试全部通过，无失败或跳过，耗时约 41.3 s。
+51 项测试全部通过，无失败或跳过，耗时约 41.3 s。
 测试日志与源码身份记录保存在 \path{appendix/references/}。
 
 \begin{table}[htbp]\centering\small
-\caption{本次上位机自动测试结果}\label{tab:app-host-tests}
+\caption{上位机自动测试结果}\label{tab:app-host-tests}
 \begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{3.0cm}cY}
 \toprule
 测试文件 & 数量 & 主要检查内容（均通过） \\
@@ -291,8 +291,8 @@ python -B -m unittest discover -s tests -v
 以上测试验证软件解析、数值趋势、线程调度及界面行为。
 合成高斯斜边和棋盘格通过，不代表真实图卡的 MTF50 或直线度已经达标；
 虚拟串口通过，也不能替代实际 USB、双屏物理时序与设备断连测试。
-实物联调仍需记录两路采集格式和吞吐、正确的副屏输出、长时间运行、
-拔插恢复、实际图卡评估与最终 FPGA 位流身份。
+测试结果覆盖软件解析、数值分析与界面行为。
+实物采集吞吐、双屏物理时序、长时运行及图卡定量测量不在该测试集的结论范围内。
 \sourcefile{\path{../PC/tests/}；
 \path{appendix/references/pc_unittest_20261025.txt}；
 \path{appendix/references/source_manifest_20261025.json}}

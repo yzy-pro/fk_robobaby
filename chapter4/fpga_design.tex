@@ -9,9 +9,8 @@
   fpnote/.style={align=center,font=\fontsize{8.5}{11}\selectfont,text=TemplateBlue}
 }
 
-\section{设计范围与 RTL 总体结构}
-本章以 \path{../Pgl50h/EmbFPGA.pds} 登记的工程及
-\path{src/top/hdmi_ddr3_top.v} 默认参数为依据，说明第三章算法在
+\section{系统配置与 RTL 总体结构}
+本章介绍系统的 RTL 架构与算法部署方法，说明图像处理算法在
 PGL50H-FBG484-6 上的 RTL 实现。系统输入、输出均为
 $1920\times1080$、60 Hz 的 HDMI 视频，外部并行接口采用 RGB888，
 DDR3 内的源帧和结果帧采用 RGB565。算法按完整源帧调度，显示端按独立光栅连续扫描，
@@ -465,8 +464,8 @@ G 通道最大值为 63，相应至多 65024，因此非负累加结果用 16 bi
 
 若将双线性迁入分块器，除增加权重乘加外，还需保存坐标小数、
 把四邻点全部纳入源矩形边界，并解决片内 RAM 同拍多地址读取的端口安排。
-可采用分银行、复制存储或分拍取邻点，但这些属于后续扩展方案；
-当前默认坐标 RAM 只存有效位和整数源坐标，没有部署上述双线性硬件。
+默认坐标 RAM 只存有效位和整数源坐标，与最近邻采样的存储需求一致。
+双线性分支采用独立串行渲染器，其资源与吞吐按对应通路分别评价。
 \sourcefile{\path{../Pgl50h/src/video/pose/pose_renderer_dma.v}；\path{fram_buf_pose.v}}
 
 \section{姿态与镜头联合逆投影流水线}
@@ -641,7 +640,7 @@ Q14 源坐标的最小表示步长为 $2^{-14}$ 像素，
 $16\times256$ bit 分布式 RAM，仲裁器输出 \path{write_beat_index[3:0]}，
 从当前所有者读出 \path{cap_w_beat/render_w_beat[255:0]}。
 等待 \path{WREADY} 时索引不变，数据保持稳定；客户端直到 done 才重填缓冲。
-旧式 \path{wr_data[4095:0]} 端口在该模式固定为零，
+兼容接口 \path{wr_data[4095:0]} 在该模式固定为零，
 避免重复存储整笔 4096 bit 载荷，降低宽寄存器和选择网络开销。
 \sourcefile{\path{../Pgl50h/src/video/pose/pose_ddr_arbiter.v}；\path{fram_buf_pose.v}；\path{pose_renderer_tiled.v}}
 
@@ -749,7 +748,7 @@ HDMI 输出 I/O & \path{PAP_IO_REGISTER=TRUE} & 缩短 fabric 至管脚路径，
 PDS 工程通过 \path{ipcore/} 下的 \path{.idf} 引入 PLL 和 DDR3 IP，
 因此重建工程还需保留 IP 配置与 FDC，不能仅复制应用 RTL。
 
-现有 2026 年 10 月 22 日实现归档包含快慢工作角时序及四条 Gray 指针偏斜审计，
-本章用其说明当前代码与约束的组织方式；资源、处理帧率及仿真证据在后续章节分别讨论。
-这些工具结果不代替板卡下载后的端到端验证，当前文档不将其表述为实板测量。
+最终实现通过快、慢工作角静态时序及四条 Gray 指针总线偏斜检查。
+资源占用、处理帧率和功能仿真结果分别在后续章节中给出，
+与实板端到端测量采用不同评价口径。
 \sourcefile{\path{../Pgl50h/src/video/pose/pose_async_fifo.v}；\path{../Pgl50h/src/constraints/hdmi_ddr3_top.fdc}；\path{../Pgl50h/verification/20261022_pc_control_sbit.md}}

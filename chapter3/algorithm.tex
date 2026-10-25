@@ -30,7 +30,7 @@ K=\begin{bmatrix}f_x&0&c_x\\0&f_y&c_y\\0&0&1\end{bmatrix},
 为该矩阵的转置，读取时需显式转换。
 
 \subsection{标定数据与像素中心}
-整理后的仿真沿用已有相机标定参数：
+算法采用以下相机标定参数：
 \begin{equation}
 K=\begin{bmatrix}
 748.4469&0&944.9033\\
@@ -42,9 +42,8 @@ K=\begin{bmatrix}
 (k_1,k_2)=(0.0099,-0.0434),\qquad(p_1,p_2)=(0,0).
 \end{equation}
 这些参数记录于原仿真的 \path{para.txt}，与 FPGA 工程中的标定记录一致。
-本次统一输入为 $1920\times1080$ 图像，输出采用相同内参和尺寸。
-原目录中部分 BMP 和 MAT 归档为 $1440\times1080$，不能直接与当前图像和内参混合比较；
-若裁切或缩放图像，应相应调整主点或焦距。
+输入与输出图像均为 $1920\times1080$，采用相同内参和尺寸。
+图像裁切或缩放时，主点与焦距按像素变换关系相应调整。
 
 MATLAB 图像的像素中心从 1 开始，列坐标对应 $u$，行坐标对应 $v$，
 数组访问顺序为 $I(v,u)$。因此输出视线为
@@ -77,7 +76,7 @@ y_d&=yL(r)+p_1(r^2+2y^2)+2p_2xy.\label{eq:distort-y}
 u_s=f_xx_d+c_x,\qquad v_s=f_yy_d+c_y.
 \label{eq:distort-pixel}
 \end{equation}
-本次真实标定中 $p_1=p_2=0$，仍在程序中保留完整切向项，
+所用标定中 $p_1=p_2=0$，仍在程序中保留完整切向项，
 并以非零参数和已知坐标进行公式检查，避免零系数掩盖实现错误。
 
 \subsection{由正向成像模型构造逆映射}
@@ -92,18 +91,15 @@ I_o(u,v)=\mathcal S\left(I_s,\,u_s(u,v),\,v_s(u,v)\right),
 实际需要的是该视线在原始畸变图像中的位置。
 
 映射坐标应保留符号与小数精度，先进行有效性判断，再转换为数组索引。
-整理后的实现用双精度坐标图保存 $u_s,v_s$，将无效位置标为非数值，
+参考实现用双精度坐标图保存 $u_s,v_s$，将无效位置标为非数值，
 避免负坐标转换为无符号整数后回绕到图像另一侧。
 
 \subsection{去畸变 MATLAB 仿真}
-已有仿真使用 \path{cameraParameters} 建立相机模型，
-通过内置 \path{undistortImage} 与手工映射作比较，
-并采用 5 位小数的双线性权重模拟整数插值。
-本次保留原脚本于 \path{chapter3/reference/undistort/legacy/}，
-将手工映射、采样和实验入口分离，消除对当前工作目录和桌面显示设置的依赖。
-同时修正原手工函数中的切向项，统一为式~\eqref{eq:distort-x} 和式~\eqref{eq:distort-y}。
-
-新的 \path{run_undistort_simulation.m} 读取同一张真实相机图像，
+仿真程序使用 \path{cameraParameters} 建立相机模型，
+将内置 \path{undistortImage} 与按式~\eqref{eq:distort-x}、
+式~\eqref{eq:distort-y} 构造的映射进行比较。
+映射、采样和实验入口分别封装，统一使用相同标定与边界规则。
+\path{run_undistort_simulation.m} 读取同一张真实相机图像，
 分别生成浮点双线性、5 位权重双线性和最近邻结果，
 记录有效区域比例及量化误差。
 若安装 Computer Vision Toolbox，则额外调用内置去畸变函数，
@@ -377,8 +373,8 @@ MATLAB 模型保留这一因果顺序，不用当前帧的全图统计提前处�
 \subsection{目录与复现入口}
 所有 MATLAB 仿真位于 \path{chapter3/reference/}，
 共用参数只在 \path{common/simulation_config.m} 中定义，主要文件见表~\ref{tab:matlab-files}。
-原始图像、标定文本及历史 MAT/BMP 数据保留，新的运行结果写入 \path{results/}，
-论文插图写入 \path{chapter3/figures/}。
+输入图像与标定文本作为固定实验数据，计算结果保存于 \path{results/}，
+报告插图保存于 \path{chapter3/figures/}。
 
 \begin{table}[htbp]\centering\small
 \caption{MATLAB 仿真程序组织}
@@ -410,15 +406,14 @@ run_all_simulations;
 保留的图卡质量评估函数还依赖 Image Processing Toolbox。
 没有相应工具箱时，手工模型仍可运行，内置比较按可用性跳过。
 
-\subsection{验证状态与数值观察}
-本次环境中 MATLAB 启动未成功，因此新增 MATLAB 程序尚无成功运行记录。
-为检查公式和取得可审查的参考结果，另提供 \path{verify_reference.py}，
-采用独立的 SciPy 插值和矩阵运算进行数值交叉检查。
-本章图示与以下数值均来自该检查，不能标为 MATLAB 实测或 FPGA 板测结果；
-MATLAB 成功运行后将独立生成不带 \path{_reference} 后缀的插图和指标文件。
+\subsection{独立数值验证结果}
+算法参考程序 \path{verify_reference.py} 使用 SciPy 插值和矩阵运算，
+对几何映射、颜色重采样与 Gamma 控制关系进行独立数值验证。
+本章图示与数值均来自该程序；MATLAB 程序提供同模型复现入口，
+未列入已执行的 MATLAB 测试结果，数值验证也不作为 FPGA 实板测量。
 
-在本次 $1920\times1080$ 真实图像上，零姿态去畸变映射的有效区域占比为 100\%，
-这仅说明当前参数与输出视场下坐标落在源图内。
+在 $1920\times1080$ 测试图像上，零姿态去畸变映射的有效区域占比为 100\%，
+该比例描述既定参数与输出视场下的坐标覆盖。
 5 位权重双线性与浮点双线性的最大通道差为 5 灰度级，RGB 均方根差约为 0.677 灰度级。
 该结果反映插值权重及取整差异，不能据此代替镜头标定精度或图像清晰度指标。
 
@@ -430,7 +425,7 @@ MATLAB 成功运行后将独立生成不带 \path{_reference} 后缀的插图和
 
 在稳定后的暗光测试段，平均亮度从约 18.67 提升至 64.14；
 强光段从约 230.51 降至 211.30；混合光照选择指数为 0.80 的温和曲线。
-七档曲线及安全恒等档的 2048 项数值与当前 FPGA Gamma ROM 一致，
+七档曲线及安全恒等档的 2048 项数值与 FPGA Gamma ROM 一致，
 帧间实际曲线变化也满足每帧至多一档的约束。
 这些结果验证了模型的数值关系与控制逻辑，最终画质、颜色、动态姿态同步及硬件吞吐
 分别在后续硬件与测试章节中评价。

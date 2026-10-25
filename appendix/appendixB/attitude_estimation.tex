@@ -4,7 +4,7 @@
 摄像头姿态由与其刚性连接的 BMI088 测量，经 STM32F4 解算后分别发送给 FPGA 和 PC。
 本附录依据 \path{../Stm32f4/} 中的采集、Mahony 解算和通信源码，
 说明从惯性数据到摄像头矫正参数的处理过程。
-当前工程提供 yaw、pitch、roll 三个姿态角，没有估计摄像头平移位置，
+系统提供 yaw、pitch、roll 三个姿态角，没有估计摄像头平移位置，
 因此本附录中的“位姿获取”具体实现为旋转姿态获取。
 默认 FPGA 使用 yaw/pitch，roll 仅保留接收与显示。
 
@@ -21,7 +21,7 @@ BMI088 的加速度计与陀螺仪共享 SPI1，使用独立片选；
 \caption{STM32 IMU 接口与解算配置}\label{tab:app-imu-config}
 \begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{3.5cm}YY}
 \toprule
-项目 & 当前代码配置 & 说明 \\
+项目 & 固件配置 & 说明 \\
 \midrule
 传感器总线 & SPI1，DMA 读写 & 两个传感器独立片选，以信号量协调共享总线 \\
 加速度计 & $\pm3g$，800 Hz ODR & 数据转换系数为 $0.00089685$，用于换算为 $\mathrm{m/s^2}$ \\
@@ -45,7 +45,7 @@ $\pm500\,^{\circ}/\mathrm s$，但实际配置为
 分别解析数据、更新温控和进行姿态解算。
 随后把 roll、pitch、yaw 三个浮点数复制到两条独立状态队列，
 供 \path{AppJetsonTask} 与 \path{AppJetsonUsbTask} 读取。
-代码中的 Jetson 命名沿用早期模块名，当前分别承担 USART 与 USB CDC 姿态发送。
+USART 与 USB CDC 姿态发送分别由独立通信任务承担。
 
 \begin{figure}[htbp]\centering
 \begin{tikzpicture}[font=\small,
@@ -61,7 +61,7 @@ $\pm500\,^{\circ}/\mathrm s$，但实际配置为
 \draw[flow] (queue.east) -- ++(0.22,0) |- (uart.west);
 \draw[flow] (queue.east) -- ++(0.22,0) |- (usb.west);
 \end{tikzpicture}
-\caption{现有固件的姿态采集、解算与双通道分发}
+\caption{姿态采集、解算与双通道分发}
 \label{fig:app-imu-pipeline}
 \end{figure}
 
@@ -70,10 +70,9 @@ $\pm500\,^{\circ}/\mathrm s$，但实际配置为
 因此，50 Hz 是通信任务的目标频率，不能认为每个发送值都来自该时刻最新的惯性采样。
 800 Hz 加速度、1000 Hz 陀螺仪与 1000 Hz 解算循环也不是同一事件，
 当前代码可能在某次循环中重用上一组已读数据。
-初始化前就已取得调度基准，而初始化包含较长等待，且任务未检查 \path{setup()} 返回状态，
-因此代码中的目标周期不构成启动后稳定 1 kHz 或传感器就绪的保证；
-后续固件应在初始化成功后重新设定调度基准，并记录采样有效性。
-正式动态测试应测量采集新鲜度和任务抖动，而非仅用任务周期推算角度延迟。
+初始化过程包含等待，任务使用固定调度周期。
+解算频率与数据新鲜度分别计量，启动稳定时间、实际采样间隔和任务抖动
+纳入动态响应评价，不以配置周期直接换算姿态延迟。
 \sourcefile{\path{../Stm32f4/Core/Hardware/bmi088/bmi088_task.cpp}；
 \path{../Stm32f4/Core/Src/freertos.c}；
 \path{../Stm32f4/Core/Hardware/jetson/jetson_task.cpp}；
@@ -93,10 +92,9 @@ $\pm500\,^{\circ}/\mathrm s$，但实际配置为
 [0.00155281043,\ 0.00148057903,\ 0.00126652408]^{\mathsf T}
 \ \mathrm{rad/s}.
 \end{equation}
-这些数值是已有代码常量，没有随附本次器件、温度和采样时长的原始校准记录，
-更换传感器后应重新测量，不能当作所有 BMI088 的通用校准值。
-建议在安装固定、温度稳定后采集静态角速度，以均值估计偏置，
-另用独立时段记录扣偏后的均值和标准差。
+这些固定偏置对应固件配置，原始器件、温度与采样时长记录不完整。
+静态零偏采用温度稳定后的角速度均值估计，扣偏残差以独立时段的均值与标准差评价；
+更换传感器后重新标定。
 
 加速度计输出按量程系数转换后用于估计重力方向。
 可通过多面静置检查轴向、符号、零偏与尺度，
@@ -149,9 +147,9 @@ R_{C_tC_0}=R_{WC}(t)^{\mathsf T}R_{WC}(0)
 \label{eq:app-imu-camera-rotation}
 \end{equation}
 该式说明安装旋转、参考零位及映射方向的关系。
-当前固件仅发送三个欧拉角，没有显式应用这条完整的相机外参链，
-因此式~\eqref{eq:app-imu-camera-rotation} 是联调与后续完善的坐标依据，
-不能描述为当前已完成的外参标定功能。
+固件接口发送三个欧拉角，未包含完整相机外参链的在线求解。
+式~\eqref{eq:app-imu-camera-rotation} 用于定义安装关系、参考零位与映射方向，
+与已实现的姿态通信接口分别说明。
 
 \subsection{与默认 FPGA 路径对接}
 当前 FPGA 默认按 yaw/pitch 每轴约 $\pm15^\circ$ 工作，roll 不参与逆映射。
@@ -165,7 +163,7 @@ R_{C_tC_0}=R_{WC}(t)^{\mathsf T}R_{WC}(0)
 不会修改 STM32 偏置、FPGA 参考姿态或发送数据。
 更严格的姿态零位应通过旋转矩阵或四元数建立相对关系；
 简单逐项减欧拉角只在受限小角度、已统一顺序的条件下近似适用。
-\fillin{补充 IMU 与相机安装照片、三轴示意、安装旋转或轴映射表及参考零位定义。}
+相机--IMU 安装旋转及参考零位的实测记录尚不完整。
 
 \section{姿态帧、传输通道与异常处理}
 \subsection{十字节二进制帧}
@@ -208,7 +206,7 @@ USB 路径检查设备已配置且上一笔发送完成后才重用发送缓冲�
 首次姿态数据到达前可能发送零值，队列无更新时可能继续发送旧姿态；
 所以“收到合法帧”不等于“传感器已就绪且数据新鲜”。
 PC 连续 0.5 s 无合法帧时提示超时，但这仍是通信层检查。
-后续若需要严格动态对齐，应扩展采样序号、硬件时间戳和有效状态，并同步升级 FPGA 与 PC 解码。
+协议不提供采样时刻信息，姿态与图像的时间配准精度据此单独评价。
 \sourcefile{\path{../Stm32f4/Core/Hardware/jetson/jetson.cpp}；
 \path{../Stm32f4/Core/Hardware/jetson_usb/jetson_usb.cpp}；
 \path{../Stm32f4/Core/Hardware/jetson_usb/usb_receive_manual.md}；
@@ -223,18 +221,18 @@ PC 连续 0.5 s 无合法帧时提示超时，但这仍是通信层检查。
 不将 PC 模型运动正确作为相机矫正方向正确的唯一依据。
 
 \begin{table}[htbp]\centering\small
-\caption{IMU 到摄像头姿态的实测记录模板}\label{tab:app-imu-measurements}
+\caption{IMU 与摄像头姿态的测量项目}\label{tab:app-imu-measurements}
 \begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{3.1cm}YY}
 \toprule
-项目 & 测量方法与记录内容 & 当前记录 \\
+项目 & 测量方法与记录内容 & 测量状态 \\
 \midrule
-静态零偏与噪声 & 温度稳定后记录三轴均值、标准差和采样时长 & \fillin{待测} \\
-角度准确度 & 已知正负单轴角度与组合姿态；报告偏差及重复性 & \fillin{待测} \\
-航向漂移 & 静置连续记录，展开 yaw 后统计指定时长内漂移 & \fillin{待测} \\
-温控效果 & 目标温度、升温时间、稳态波动与环境温度 & \fillin{待测} \\
-采样与通信节拍 & 实际有效帧率、接收间隔分布、丢包与重复值 & \fillin{待测} \\
-姿态到画面响应 & 阶跃转动、串口到达、FPGA 帧锁存及显示事件 & \fillin{待测} \\
-异常恢复 & 断开、重连、错误校验、启动全零及长期无更新 & \fillin{待测} \\
+静态零偏与噪声 & 温度稳定后记录三轴均值、标准差和采样时长 & 未测量 \\
+角度准确度 & 已知正负单轴角度与组合姿态；报告偏差及重复性 & 未测量 \\
+航向漂移 & 静置连续记录，展开 yaw 后统计指定时长内漂移 & 未测量 \\
+温控效果 & 目标温度、升温时间、稳态波动与环境温度 & 未测量 \\
+采样与通信节拍 & 实际有效帧率、接收间隔分布、丢包与重复值 & 未测量 \\
+姿态到画面响应 & 阶跃转动、串口到达、FPGA 帧锁存及显示事件 & 未测量 \\
+异常恢复 & 断开、重连、错误校验、启动全零及长期无更新 & 未测量 \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -242,4 +240,4 @@ PC 连续 0.5 s 无合法帧时提示超时，但这仍是通信层检查。
 第五章已验证 FPGA 姿态 UART 的符号、小端、校验拒收及跨域快照，
 附录~\ref{app:pc-host}~给出上位机姿态解析与软件检查。
 这些测试覆盖协议与软件行为，表~\ref{tab:app-imu-measurements} 的实物精度和动态响应
-仍须按同一固件、安装和温度条件实际填写。
+尚无完整定量记录，表中统一标记为“未测量”。

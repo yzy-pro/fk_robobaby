@@ -50,7 +50,7 @@ MES50HP 由核心板和扩展底板组成，两者通过高速板对板连接器
 
 \subsection{PDS 开发工具与工程组织}
 本系统使用紫光同创 Pango Design Suite（PDS）作为 FPGA 开发工具，
-工程归档版本为 PDS 2025.2 build 211867。PDS 面向紫光同创 FPGA 提供从
+实现工具为 PDS 2025.2 build 211867。PDS 面向紫光同创 FPGA 提供从
 HDL 设计输入、逻辑综合、器件映射、布局布线到静态时序分析及位流生成的实现流程，
 并配合厂商 IP 完成时钟与存储接口等基础模块的集成。
 
@@ -61,76 +61,54 @@ PLL、读写缓存及 DDR3 控制器等 IP 位于 \path{ipcore/} 目录，并通
 \path{src/constraints/hdmi_ddr3_top.fdc} 管理。
 开发时依据板卡手册核对引脚及接口电平，在 PDS 中完成综合与布局布线后，
 结合资源报告和时序报告检查实现结果，再生成用于板级验证的配置位流。
-固定工具版本、目标器件与约束文件，有助于保持后续功能迭代及验证结果的可追溯性。
+实现记录关联工具、目标器件、约束文件与配置位流，保证结果可追溯。
 \sourcefile{\path{../Pgl50h/EmbFPGA.pds}；\path{../Pgl50h/bitstream/pc_control_20261022_identity.json}}
 
 \section{系统硬件设计}
-\subsection{FPGA器件与板卡选型}
-本项目使用紫光同创的MES50HP开发板,该板搭载Logos系列的PGL50H FPGA芯片。
-\begin{figure}[htbp]
-    \centering
-    \includegraphics[width=0.8\textwidth]{chapter2/figures/tmp.png}
-    \caption{PGL50H  芯片实物图}
-    \label{fig:pgl50h}
+\subsection{开发板与外部连接}
+系统以 MES50HP 开发板为图像处理核心，板载 HDMI 接收、发送与 DDR3 存储接口
+构成视频数据通路，UART 接口接收姿态并连接上位机。
+图~\ref{fig:mes50hp} 给出开发板及主要接口分布。
+
+\begin{figure}[htbp]\centering
+\includegraphics[width=0.66\textwidth]{chapter2/figures/tmp.png}
+\caption{MES50HP 开发板及主要接口分布}
+\label{fig:mes50hp}
 \end{figure}
 
-\begin{figure}[htbp]
-    \centering
-    \includegraphics[width=0.8\textwidth]{chapter2/figures/tmp.png}
-    \caption{MES50HP 开发板实物图}
-    \label{fig:mes50hp}
-\end{figure}
+\subsection{相机与视频输入}
+系统使用杰锐微通 USB 工业相机，视频输入规格为 $1920\times1080$、60 fps。
+PC 通过 OpenCV 读取原始图像，由独立副屏 HDMI 输出至开发板 HDMI 输入接口；
+板载 MS7200 将 HDMI 视频转换为 RGB888 并行像素数据。
+该链路便于同时保存原始图像、向 FPGA 供图并开展同源对照分析。
+PC 输出显示模式、采集格式和图像尺寸共同决定实际输入条件。
 
-\subsection{摄像头选型与视频输入}
-摄像头选用杰锐微通USB工业相机,支持1920x1080@60fps分辨率输出。PC通过opencv捕获相机原始图像,通过PC副屏hdmi输出到开发板的hdmi-in接口,经过板载ms7200芯片转为为rgb888实现视频输入。
+\subsection{视频输出与显示}
+FPGA 输出的并行 RGB888 视频由板载 MS7210 编码为 HDMI，
+经绿联 USB 采集卡送回 PC，与原始图像并排显示。
+显示端独立维持 60 Hz 扫描，新矫正结果在安全帧边界交接。
+采集卡与 PC 预览仅承担结果观测，不参与 FPGA 内部的帧率控制。
 
-\begin{figure}[htbp]
-    \centering
-    \includegraphics[width=0.8\textwidth]{chapter2/figures/tmp.png}
-    \caption{杰锐微通USB工业相机实物图}
-    \label{fig:jerry_camrea}
-\end{figure}
+\subsection{IMU 与姿态输入}
+姿态采集使用 RoboMaster C 型开发板，主控为 STM32F407，
+传感器为 BMI088 六轴惯性测量单元。
+STM32 经 SPI 获取三轴加速度与角速度，以 Mahony 算法解算 yaw、pitch、roll，
+量化为有符号 16 bit 数据后，通过 UART 发送至 FPGA。
+FPGA 将姿态与源帧关联，在同一帧矫正期间保持参数不变。
+姿态采集、坐标约定和通信格式见附录~\ref{app:attitude-estimation}。
 
-\subsection{视频输出与显示接口}
-处理后的图像通过板载ms7210芯片编码后,经开发板的hdmi-out接口输出,经过绿联USB采集卡转换为USB视频流,在PC端显示。
+\subsection{双轴云台}
+相机安装于自研二自由度云台，yaw、pitch 两轴由达妙电机驱动，
+用于调整拍摄方向及构造静态、连续转动测试场景。
+IMU 与相机保持刚性连接，使姿态输入对应相机的旋转状态。
+云台机械轴、传感器轴与图像轴的对应关系决定姿态符号和矫正方向。
 
-% \begin{figure}[htbp]
-%     \centering
-%     \includegraphics[width=0.8\textwidth]{chapter2/figures/tmp.png}
-%     \caption{绿联USB采集卡实物图}
-%     \label{fig:ugreen_capture}
-% \end{figure}
-
-\subsection{IMU设计与姿态输入}
-imu使用robomasterC型开发板,其搭载了stm32h407主控与bmi088惯性测量单元,可以通过spi通信获取bmi088原始数据,并通过姿态解算算法将原始三轴加速度计数据和三轴陀螺仪数据转换为yaw,pitch,roll三轴欧拉角姿态信息,最后经过int16量化后通过uart串口发送给开发板,实现姿态输入。
-
-% \begin{figure}[htbp]
-%     \centering
-%     \includegraphics[width=0.8\textwidth]{chapter2/figures/tmp.png}
-%     \caption{imu实物图}
-%     \label{fig:ugreen_capture}
-% \end{figure}
-
-\subsection{云台设计}
-自研二自由度云台,使用达妙电机驱动yaw,pitch轴,实现摄像头姿态精准控制。
-
-% \begin{figure}[htbp]
-%     \centering
-%     \includegraphics[width=0.8\textwidth]{chapter2/figures/tmp.png}
-%     \caption{二自由度云台实物图}
-%     \label{fig:ugreen_capture}
-% \end{figure}
-
-\subsection{上位机设计与控制接口}
-通过板载cp2102 usb转串口芯片,将开发板的uart串口连接到PC端,实现上位机对开发板的控制和状态监控。
-
-% \begin{figure}[htbp]
-%     \centering
-%     \includegraphics[width=0.8\textwidth]{chapter2/figures/tmp.png}
-%     \caption{上位机控制页面展示}
-%     \label{fig:ugreen_capture}
-% \end{figure}
-
+\subsection{上位机控制与状态监测}
+PC 经板载 CP2102 USB 转串口接口连接 FPGA，
+独立控制镜头去畸变、姿态矫正和自适应 Gamma，
+并接收功能状态、曲线编号与帧亮度统计。
+上位机同时提供双路视频预览、姿态模型显示和图卡质量分析，
+软件结构与使用方法见附录~\ref{app:pc-host}。
 
 \section{总体数据通路}
 图~\ref{fig:architecture} 给出默认路径。RGB888 输入先完成帧自适应 Gamma，
@@ -174,9 +152,8 @@ imu使用robomasterC型开发板,其搭载了stm32h407主控与bmi088惯性测�
 \subsection{精度、资源与吞吐的取舍}
 RGB565 将单像素存储量由 24 bit 降为 16 bit，代价是颜色量化。
 默认最近邻采样降低访存和采样开销，但需评估边缘锯齿与高频纹理误差。
-当前采用精确流水除法路径，实验性倒数 LUT 默认关闭；历史串行双线性路径
-不具有当前分块路径的 30 fps 验证结果。
-\fillin{与 CPU/GPU 或串行 FPGA 路径的同条件定量对比}。
+透视归一化采用恢复除法流水线，处理吞吐按完整分块通路评价。
+最近邻采样、定点精度与颜色量化的影响在图像质量评价中分别考察。
 
 \section{时钟域与帧级工作过程}
 系统参考时钟为 50 MHz，视频参考为 27 MHz；视频 PLL 产生 148.5 MHz 输出像素时钟，
@@ -186,5 +163,4 @@ DDR 用户接口/渲染域为 100 MHz。输入像素时钟由 HDMI 接收侧提�
 帧级过程为：输入 SOF 提交功能设置并锁存姿态，完成源帧采集后允许调度渲染；
 渲染期间源槽和结果槽的归属保持不变；最后一个 DDR 写事务完成后登记结果，
 显示侧在 VS 边界及相关读事务安全结束后交接。处理未完成时继续显示上一完整结果帧。
-\figplaceholder{硬件连接与演示环境}{插入开发板、HDMI 输入/输出、IMU、CP2102 和电源的连接照片，标注端口及信号方向。}
 \sourcefile{\path{../Pgl50h/src/top/hdmi_ddr3_top.v}；\path{../Pgl50h/src/constraints/hdmi_ddr3_top.fdc}}
