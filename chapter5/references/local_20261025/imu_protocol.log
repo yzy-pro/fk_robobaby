@@ -1,0 +1,2 @@
+PASS IMU UART: 921600 baud, signed little endian, checksum rejection, repeated header resynchronization
+/home/yzy/code/ECSDC_FPGA_2026/Pgl50h/tests/tb_imu_protocol.sv:42: $finish called at 347780000 (1ps)

@@ -1,0 +1,7 @@
+SCENE scene=0 active=0 target=0
+SCENE scene=1 active=6 target=6
+SCENE scene=2 active=2 target=2
+SCENE scene=3 active=3 target=3
+SCENE scene=0 active=0 target=0
+PASS adaptive gamma: all2048 LUT entries, night/strong/mixedlight adaptation, neutral, hysteresis, atomic enable/curve, DE/VS two-stage cadence, exact frame stats; pixels=15365 stats=60
+/home/yzy/code/ECSDC_FPGA_2026/Pgl50h/tests/tb_adaptive_gamma_stream.sv:138: $finish called at 108767568 (1ps)

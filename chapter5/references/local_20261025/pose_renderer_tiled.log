@@ -1,0 +1,7 @@
+MEASURE tiled yaw=0 pitch=0 pixels=5760 clocks=12644 source_commands=91 source_beats=403 write_commands=80 ms=0.126440 fps=7908.889592 valid=5760 black=0
+MEASURE tiled yaw=536 pitch=536 pixels=5760 clocks=11552 source_commands=23 source_beats=129 write_commands=80 ms=0.115520 fps=8656.509695 valid=866 black=4894
+MEASURE tiled yaw=536 pitch=-536 pixels=5760 clocks=12589 source_commands=87 source_beats=393 write_commands=80 ms=0.125890 fps=7943.442688 valid=5760 black=0
+MEASURE tiled yaw=-536 pitch=536 pixels=5760 clocks=10833 source_commands=2 source_beats=2 write_commands=80 ms=0.108330 fps=9231.053263 valid=4 black=5756
+MEASURE tiled yaw=-536 pitch=-536 pixels=5760 clocks=12512 source_commands=88 source_beats=416 write_commands=80 ms=0.125120 fps=7992.327366 valid=4279 black=1481
+PASS tiled renderer: exact pixels, all tile edges, pose snapshot, DDR bursts/backpressure, final commit and bad LAST hold
+/home/yzy/code/ECSDC_FPGA_2026/Pgl50h/tests/tb_pose_renderer_tiled.sv:170: $finish called at 644040000 (1ps)

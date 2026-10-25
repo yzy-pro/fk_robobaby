@@ -1,0 +1,2 @@
+PASS PC UART: all masks, SOF commit, busy, checksum, timeout, status, telemetry, streaming
+/home/yzy/code/ECSDC_FPGA_2026/Pgl50h/tests/tb_pc_control.sv:119: $finish called at 3799190000 (1ps)

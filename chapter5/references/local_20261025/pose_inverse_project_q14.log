@@ -1,0 +1,2 @@
+PASS tb_pose_inverse_project_q14
+/home/yzy/code/ECSDC_FPGA_2026/Pgl50h/tests/tb_pose_inverse_project_q14.sv:135: $finish called at 4046000 (1ps)

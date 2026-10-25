@@ -1,0 +1,5 @@
+PASS FIFO WIDTH=8 DEPTH=2: writes=3526 reads=3522 full=14953 empty=4125
+PASS FIFO WIDTH=256 DEPTH=512: writes=12260 reads=11488 full=5175 empty=102
+PASS FIFO WIDTH=37 DEPTH=8: writes=15108 reads=15096 full=110 empty=14262
+PASS pose async FIFO: independent clocks, 512/8/2 entries, full/empty, wrap, randomized stalls, credits, occupied reset
+/home/yzy/code/ECSDC_FPGA_2026/Pgl50h/tests/tb_pose_async_fifo.sv:14: $finish called at 283010000 (1ps)

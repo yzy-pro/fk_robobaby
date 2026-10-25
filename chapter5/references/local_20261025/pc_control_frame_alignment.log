@@ -1,0 +1,2 @@
+PASS registered SOF control alignment: GAMMA=1, 25 frames, all 8 masks, first DE at SOF, pending commands, gamma oracle and geometry/telemetry identity
+/home/yzy/code/ECSDC_FPGA_2026/Pgl50h/tests/tb_pc_control_frame_alignment.sv:133: $finish called at 8505042 (1ps)

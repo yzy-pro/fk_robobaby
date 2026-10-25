@@ -1,0 +1,2 @@
+PASS RGB888: all 65536 colors, exact DE forwarding, 23/2-cycle raster/reset
+/home/yzy/code/ECSDC_FPGA_2026/Pgl50h/tests/tb_rgb888_raster.sv:28: $finish called at 655380000 (1ps)

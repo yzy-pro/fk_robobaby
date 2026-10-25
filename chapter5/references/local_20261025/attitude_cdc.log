@@ -1,0 +1,3 @@
+VCD info: dumpfile attitude_cdc.vcd opened for output.
+PASS attitude CDC: 100 asynchronous snapshots, no duplicate/mixed packets, reset
+/home/yzy/code/ECSDC_FPGA_2026/Pgl50h/tests/tb_attitude_cdc.sv:29: $finish called at 30162586 (1ps)

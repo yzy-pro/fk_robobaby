@@ -125,9 +125,9 @@ $1920\times1080$、60 Hz 扫描，将完整矫正结果的更新速率设为不�
 第~\ref{chap:system}~章介绍开发平台、硬件组成与总体数据通路；
 第~\ref{chap:algorithm}~章介绍标定参数、姿态变换、畸变模型及重采样方法；
 第~\ref{chap:hardware}~章说明 FPGA 模块划分、存储调度与跨时钟域设计；
-第~\ref{chap:control}~章介绍姿态通信、上位机控制及自适应 Gamma；
-第~\ref{chap:verification}~章给出验证方案和板级测试方法；
-第~\ref{chap:performance}~章分析帧率、延迟、资源及图像质量，最后总结局限与改进方向。
+第~\ref{chap:control}~章给出模块与链路仿真方法、自动检查项及验证结果；
+第~\ref{chap:verification}~章分析 FPGA 实时性能与资源效率；
+第~\ref{chap:performance}~章建立矫正清晰度、直线度及边缘质量的评估模板，最后总结局限与改进方向。
 
 当前工程基线采用最近邻重采样，yaw/pitch 每轴支持范围约为 $\pm15^\circ$，
 roll 未参与变换，所用标定的切向系数为零，无效源区域输出黑色。
