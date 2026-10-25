@@ -1,0 +1,128 @@
+\chapter{FPGA 硬件架构与存储优化}
+\label{chap:hardware}
+\section{模块划分与接口契约}
+应用 RTL 按顶层、板级接口、IMU、控制、预处理、格式、时序和存储分层。
+厂商 PLL、RAM 和 DDR3 IP 位于 \path{ipcore/}，通过对应 \path{.idf} 登记到 PDS。
+表~\ref{tab:modules} 列出默认路径的核心模块。
+
+\begin{table}[htbp]\centering\small
+\caption{核心 RTL 模块与职责}\label{tab:modules}
+\begin{tabularx}{\textwidth}{p{6.2cm}Y}
+\toprule
+模块（相对 \path{src/}） & 职责与关键边界 \\
+\midrule
+\path{top/hdmi_ddr3_top.v} & 顶层集成、参数选择、功能控制及视频接口 \\
+\path{video/preprocess/adaptive_gamma_stream.v} & 帧统计、曲线选择、流式增强 \\
+\path{video/pose/fram_buf_pose.v} & 源帧采集、渲染调度、显示与跨域缓存 \\
+\path{video/pose/pose_inverse_project_q14.v} & 帧姿态加载、像素逆投影和无效标志 \\
+\path{video/pose/pose_renderer_tiled.v} & 分块遍历、包围矩形、缓存、采样及写回 \\
+\path{video/pose/pose_ddr_arbiter.v} & 采集、显示与渲染 DDR 请求仲裁 \\
+\path{video/pose/pose_async_fifo.v} & 像素域与 DDR 域跨域数据缓冲 \\
+\path{imu/imu_protocol_50m.v}、\path{attitude_cdc.v} & 姿态协议接收与快照同步（两者同目录） \\
+\path{control/cp2102_control.v} & 上位机协议、状态应答和遥测发送 \\
+\path{control/video_control_cdc.v} & 帧配置握手和原子应用 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+工程还登记了 \path{pose_tile_read_scheduler.v} 与
+\path{pose_frame_bank_allocator.v} 等独立支持模块，当前默认路径未实例化它们。
+本章所述块读取与帧槽所有权以 \path{pose_renderer_tiled.v} 和
+\path{fram_buf_pose.v} 中实际集成的控制逻辑为准。
+
+接口采用 \path{valid/ready} 或 \path{start/busy/done/error} 表达有效性和完成状态。
+源/结果帧、姿态及参数必须保持到事务完成；写命令被接收不等于写数据已经提交。
+DDR 地址以 32 bit word 为单位，数据载荷以 256 bit beat 为单位，
+二者在地址换算和带宽统计时不能混用。
+
+\section{HDMI 输入、预处理与显示对齐}
+MS7200 输出并行 RGB888 及同步信号，输入寄存器后经过两拍 Gamma 和一拍 RGB565 转换，
+总计固定四拍输入流水线。DE/VS 必须随像素延迟，防止跨行、首像素或帧边界错配。
+关闭 Gamma 时仍保留流水线延迟。显示端从结果帧获取 RGB565，转换为 RGB888 后
+按输出扫描时序驱动 MS7210。
+\figplaceholder{视频数据与控制信号对齐波形}{插入输入 SOF、DE、RGB、Gamma 输出、RGB565 输出以及首末像素的同屏波形，标注四拍延迟。}
+
+\section{DDR3 帧槽与所有权管理}
+源帧槽使用 0/3，结果帧槽使用 1/2，帧槽间隔为 16 MiB。
+一帧 RGB565 有效载荷为
+\begin{equation}
+S_f=1920\times1080\times2=4,147,200\ \text{bytes}.
+\end{equation}
+槽间隔不是单帧有效数据量，也不意味着整个间隔均参与传输。
+采集侧只写入可用源槽，渲染期间保持源帧稳定；显示侧只读完整结果帧。
+
+结果发布应满足：所有块已完成、最后一笔 DDR 写真实结束、完成消息已登记、
+显示帧边界到达并满足读事务交接条件。遇到错误 LAST、回压或渲染错误时，
+不能提前释放仍有未完成事务的槽。
+\guide{绘制源槽和结果槽状态转换图，补充各状态的进入条件、持有者和释放条件；
+说明无可用源槽时的跳帧策略、启动阶段及异常恢复行为。}
+
+\section{双槽分块渲染器}
+\subsection{块尺寸及流水过程}
+当前输出块为 $128\times32$，1080p 分为 15 列、34 行，共 510 块，末排高度 24。
+块内逐点执行以下过程：计算逆投影并缓存坐标，统计有效源采样点的包围矩形，
+按行突发读取源矩形至片内 RAM，连续采样形成结果块，最后逐行突发写回 DDR3。
+两个槽使下一块的投影/读源与当前块的采样/写回重叠，隐藏部分访存和流水排空开销。
+
+\begin{table}[htbp]\centering\small
+\caption{当前分块配置下的主要片内缓存}
+\begin{tabularx}{\textwidth}{p{4.2cm}YY}
+\toprule
+缓存 & 逻辑容量 & 用途 \\
+\midrule
+双槽源区域缓存 & 每槽 $2048\times256$ bit，64 KiB & 两槽合计 128 KiB，存放源矩形 \\
+双槽坐标 RAM & 总计 $8192\times23$ bit & 缓存有效位与最近邻源坐标 \\
+双槽输出块 RAM & 总计 $512\times256$ bit & 每块 4096 个 RGB565 像素 \\
+采集/显示异步 FIFO & 各 $512\times256$ bit & 两个像素域与 DDR 域间解耦 \\
+客户端写突发缓冲 & 每个相关客户端 $16\times256$ bit & 分布式 RAM 持有写数据至真实完成 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+这些是 RTL 逻辑容量，不能直接等同于最终 DRM 位置数；实际映射受到端口、
+宽深组合和布局因素影响，资源统计见第~\ref{chap:performance}~章。
+
+\subsection{容量保护与 DDR 突发}
+源矩形按 16 个 RGB565 像素/256 bit beat 对齐，单条命令包含 1～16 beat。
+容量检查依次经过 \path{P_BOUNDS}、\path{P_AREA} 和 \path{P_CAPACITY}：
+先求宽高，再计算面积，最后比较缓存容量；超限块在发出首条 DDR 读请求前拒绝。
+全部像素无效的块不读取无意义源区域。
+
+历史软件保守区间分析对相同标定、yaw/pitch 整数限值给出的 $128\times32$
+源区域上界为 1200 beat，小于单槽 2048 beat。该结果来自软件算术模型，
+不等同于 HDL 形式等价证明，也不直接证明所有姿态的最坏渲染时间。
+\fillin{当前源码对应的容量边界日志与必要的重新审查结果}。
+
+\subsection{共享写数据与资源优化}
+当前版本将采集侧和渲染侧写突发存放在客户端持有的分布式 RAM 中。
+仲裁器按 beat 索引读取当前客户端缓冲，减少重复的 4096 bit 宽数据寄存器。
+客户端直到最后一个有效 WREADY/WLAST 传输完成才释放缓冲，
+期间由 FIFO 回压保护后续采集数据。RAM 内容无需逐字复位，
+通过状态、长度和所有权保证有效数据先写后读。
+\guide{可插入优化前后结构图，并用相同工具、配置和约束比较资源/时序。
+历史版本同时改变块尺寸和控制逻辑，不能将全部资源差值归因于单一修改。}
+
+\section{跨时钟域、复位与时序约束}
+\subsection{跨域机制与适用前提}
+像素数据通过 Gray 指针异步 FIFO 跨域；四条指针总线分别进行偏斜约束和双角审计。
+IMU 姿态通过事件翻转和稳定快照同步，其正确性依赖源数据在目标捕获期间保持稳定，
+并非适用于任意发送速率的带确认邮箱。功能配置和多字统计快照则使用带返回确认的握手机制。
+异步复位的释放和数据有效性应按各自时钟域检查，不能以时序例外替代同步电路。
+
+\subsection{FDC 约束与验证口径}
+\begin{table}[htbp]\centering\small
+\caption{主要时序约束及审查要点}
+\begin{tabularx}{\textwidth}{p{3.1cm}YY}
+\toprule
+对象 & 工程配置 & 审查重点 \\
+\midrule
+主时钟 & 50 MHz、27 MHz、输入约 148.5 MHz & 生成时钟须保留实际来源及倍分频关系 \\
+HDMI 输入 & 最大 +2.000 ns，最小 $-0.500$ ns & 与桥芯片、布线及采样关系核对 \\
+HDMI 输出 & 最大 +1.500 ns，最小 $-0.500$ ns & 约束中描述 MS7210 下降沿采样 \\
+异步时钟关系 & 像素、DDR、配置等相应时钟组 & 逐项对应 FIFO、同步器或 IP 跨域结构 \\
+FIFO Gray 偏斜 & 上限 6.734 ns & 四条总线每条 10 bit，快慢角均完整覆盖 \\
+最终检查 & setup/hold、recovery/removal、脉宽 & 独立检查偏斜报告和 I/O 覆盖 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+工具通过建立在时钟、接口预算和例外正确的前提上，板级可靠性仍需持续运行与信号测试。
+\sourcefile{\path{../Pgl50h/src/video/pose/}；\path{../Pgl50h/src/constraints/hdmi_ddr3_top.fdc}}

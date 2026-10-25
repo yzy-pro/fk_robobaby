@@ -1,0 +1,125 @@
+\chapter{姿态通信、上位机控制与自适应增强}
+\label{chap:control}
+\section{IMU 姿态接收与参数锁存}
+IMU/外部控制板通过独立 UART 向 FPGA 发送姿态，接口为 921600 baud、8-N-1。
+\path{imu_protocol_50m.v} 的帧结构为
+\begin{center}
+\texttt{55 AA | yaw[2] | pitch[2] | roll[2] | SUM | 0D}
+\end{center}
+每个角度为 16 bit 小端有符号 Q2048 弧度，SUM 为六个载荷字节的模 256 加和。
+只有完整帧头、载荷校验和帧尾通过后才更新姿态并翻转事件标志。
+姿态跨域后随源帧锁存，roll 当前不参与投影。
+
+\begin{table}[htbp]\centering\small
+\caption{IMU 联调与动态响应记录模板}
+\begin{tabularx}{\textwidth}{p{3.6cm}Y}
+\toprule
+项目 & 待记录内容 \\
+\midrule
+物理接口与电平 & 工程 IMU RX 为 AB4；\fillin{接线、电平和共地实物确认} \\
+姿态源与更新率 & \fillin{传感器/控制板、固件版本、采样及发送频率} \\
+安装轴与正负号 & \fillin{机械轴与 yaw/pitch 的对应关系和验证照片} \\
+零点与静态误差 & \fillin{已知角度下的偏差、抖动及重复测量} \\
+动态响应 & \fillin{角度阶跃、姿态到达时间、结果显示时间与过渡帧数} \\
+异常接收 & \fillin{坏校验、断线、半包、重新同步及恢复结果} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+\sourcefile{\path{../Pgl50h/src/imu/imu_protocol_50m.v}；\path{attitude_cdc.v}（同目录）}
+
+\section{CP2102 上位机控制接口}
+\subsection{物理接口与三个开关}
+板载 CP2102 使用 FPGA 的 R8 接收 PC 数据、R9 向 PC 发送数据，
+115200 baud、8-N-1、无流控。它与 IMU UART 是两个独立通道。
+三位掩码定义见表~\ref{tab:mask}，默认值为 \texttt{0x07}，复位后恢复默认。
+
+\begin{table}[htbp]\centering\small
+\caption{运行时功能掩码与状态指示}\label{tab:mask}
+\begin{tabularx}{\textwidth}{p{1.4cm}p{2.3cm}Yp{2.2cm}}
+\toprule
+位 & 功能 & 关闭时的行为 & 指示 LED \\
+\midrule
+bit0 & 镜头去畸变 & 径向缩放为 1，切向偏移为 0；姿态可独立保留 & LED1，B2 \\
+bit1 & 姿态矫正 & 对该源帧使用零 yaw/pitch；镜头模型仍可保留 & LED2，A2 \\
+bit2 & 自适应 Gamma & 像素保持原 RGB，仍保留延迟与亮度统计 & LED3，B3 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+全部关闭仍经过 RGB565 帧存储及渲染/显示链路，不是直接 RGB888 HDMI 旁路。
+LED 表示已在输入 SOF 应用的功能开关，不表示 DDR 就绪或屏幕已显示新配置。
+
+\subsection{命令格式与生效时序}
+PC 协议采用二进制帧：
+\begin{center}
+\texttt{A5 5A | VERSION | TYPE | SEQ | LEN | PAYLOAD | XOR}
+\end{center}
+VERSION 为 \texttt{01}，XOR 从 VERSION 到载荷末尾逐字节异或，
+多字节字段为小端。命令包括设置功能 \texttt{0x10}、查询状态 \texttt{0x11}、
+遥测开关 \texttt{0x12} 和读取快照 \texttt{0x13}；
+状态与 Gamma 统计分别为 \texttt{0x80}、\texttt{0x81}。
+例如序号为 \texttt{01} 的全开命令为
+\texttt{A5 5A 01 10 01 01 07 16}。
+
+SET 命令校验成功后先改变 \path{requested_mask}，随后通过跨域握手在输入 SOF
+原子应用，再更新 \path{applied_mask}。应区分“命令已接收”“输入帧配置已应用”
+和“新结果已经显示”三个时刻。无输入 SOF 时配置保持 pending，不能假定 ACK
+意味着画面立即切换。已采集或正在渲染的帧继续使用自己的配置快照。
+
+\guide{正式报告可附上位机界面、串口抓包与配置切换波形。
+完整协议沿用工程文档，避免在报告中另造字段或将串口描述为图像传输接口。}
+\figplaceholder{上位机控制与帧边界原子应用}{左侧放三个独立开关和 Gamma 遥测界面；右侧放 requested/applied/pending 与 SOF 波形。}
+\sourcefile{\path{../Pgl50h/report/pc_control_protocol.md}；\path{../Pgl50h/tools/pc_video_control.py}}
+
+\section{帧自适应 Gamma 算法}
+\subsection{亮度统计与场景分类}
+增强前使用近似亮度
+\begin{equation}
+Y=\left\lfloor\frac{R+2G+B}{4}\right\rfloor
+\end{equation}
+进行帧统计，仅累加 DE 有效像素。统计量包括亮度和、有效像素数、
+暗部像素数（$Y<48$）及高光像素数（$Y\geq208$）。
+平均亮度分类边界使用 48、80、112、144、176、208；
+硬件比较亮度和与“像素数乘阈值”，避免逐帧运行除法器。
+暗部和高光同时达到各自至少 $1/8$ 时，按混合光照使用温和提亮曲线。
+
+\subsection{曲线选择与时间稳定}
+每个 RGB 通道使用同一档曲线，其 LUT 公式为
+\begin{equation}
+C_{\rm out}=\operatorname{round}\left[255\left(\frac{C_{\rm in}}{255}\right)^{\gamma}\right].
+\end{equation}
+\begin{table}[htbp]\centering\small
+\caption{Gamma 曲线档位}
+\begin{tabularx}{\textwidth}{c*{7}{>{\centering\arraybackslash}X}}
+\toprule
+曲线编号 & 0 & 1 & 2 & 3 & 4 & 5 & 6 \\
+指数 $\gamma$ & 0.50 & 0.65 & 0.80 & 1.00 & 1.25 & 1.55 & 1.90 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+指数小于 1 提亮、大于 1 压暗。连续两帧分类一致才更新目标曲线，每个 SOF
+最多移动一档，帧内曲线保持不变。统计反映已经完成的帧，决策作用于后续完整帧。
+自动输入 Gamma 启用时旁路历史输出固定 Gamma，避免叠加增强。
+
+该算法通过曲线调整已有像素，不能恢复输入饱和或欠曝已丢失的细节；
+真实夜间噪声和强光效果需结合图像评价。当前未实现完整的自适应直方图均衡。
+
+\section{统计遥测与实验记录}
+Gamma 统计约 10 Hz 上报，内容包括帧号、像素数、增强前后亮度和、
+增强前暗部/高光计数、实际与目标曲线和该帧功能掩码。
+这些统计位于几何矫正与 RGB565 量化之前，不代表最终 HDMI 结果帧的统计。
+暗部/高光比例均来自增强前图像，不能用于声称增强后的暗部/高光占比下降。
+
+\begin{table}[htbp]\centering\small
+\caption{增强效果实验记录模板}
+\begin{tabularx}{\textwidth}{p{2cm}YYYY}
+\toprule
+场景 & 前/后平均亮度 & 实际曲线 & 图像质量与噪声 & 切换稳定性 \\
+\midrule
+夜间低照度 & \fillin{数据} & \fillin{编号} & \fillin{ROI 与测量} & \fillin{帧数/时间} \\
+强光高亮 & \fillin{数据} & \fillin{编号} & \fillin{细节及饱和情况} & \fillin{帧数/时间} \\
+明暗混合 & \fillin{数据} & \fillin{编号} & \fillin{暗部与高光对比} & \fillin{帧数/时间} \\
+正常照明 & \fillin{数据} & \fillin{编号} & \fillin{色彩与恒等行为} & \fillin{帧数/时间} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+\sourcefile{\path{../Pgl50h/src/video/preprocess/adaptive_gamma_stream.v}；\path{../Pgl50h/src/control/gamma_telemetry.v}}

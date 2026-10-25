@@ -1,0 +1,176 @@
+\chapter{性能、资源与图像质量分析}
+\label{chap:performance}
+\section{扫描帧率与新结果帧率}
+有效像素总数为 $N=1920\times1080=2,073,600$。
+输入/显示扫描的总时序为 $2200\times1125$，因此
+\begin{equation}
+f_{\rm scan}=\frac{148.5\times10^6}{2200\times1125}=60\ \text{Hz}.
+\end{equation}
+60 Hz 的有效输入像素速率为 124.416 Mpixel/s；30 个新结果帧/秒对应
+62.208 Mpixel/s 的平均输出像素处理需求。100 MHz 渲染域的每帧预算为
+\begin{equation}
+C_{30}=\frac{100\times10^6}{30}=3,333,333.33\ \text{cycles},\qquad
+T_{30}=33.33333\ \text{ms}.
+\end{equation}
+
+当前归档最慢观测渲染为 3,314,614 拍，即 33.14614 ms，距预算约
+18,719 拍、0.18719 ms，时间余量约 0.562\%。
+该帧平均约消耗 1.5985 个渲染时钟/输出像素，包含投影、源读取、采样、写回和等待。
+单条像素流水线可以每拍启动，不代表整个系统无等待地每拍完成一个新结果像素。
+
+当前仿真稳态发布间隔为 3,333,330 拍，折算为 30.000030 fps。
+这来自仿真时序离散，不应解释为板上精确高于 30 fps 的收益。
+余量较小，需在真实 DDR 刷新、仲裁和输入场景下复测；当前不能推导全部角度与全部
+存储调度的最坏性能保证。
+
+\begin{table}[htbp]\centering\small
+\caption{帧率与延迟测量结果模板}
+\begin{tabularx}{\textwidth}{p{3.2cm}YYY}
+\toprule
+指标 & 当前归档口径 & 实板结果 & 测量方法/证据 \\
+\midrule
+输出扫描率 & 60 Hz 时序 & \fillin{Hz} & \fillin{采集设备/波形} \\
+不同源帧更新率 & 模型仿真 30.000030 fps & \fillin{fps} & \fillin{计数时长、帧号} \\
+最慢渲染时间 & 模型仿真 33.14614 ms & \fillin{ms} & \fillin{起止信号} \\
+端到端延迟 & 未实测 & \fillin{min/mean/P95/max} & \fillin{事件及设备延迟} \\
+重复帧/跳帧情况 & 与 60 Hz 输入和 30 fps 更新相关 & \fillin{数量/比例} & \fillin{帧身份日志} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{端到端延迟组成}
+当前采用完整源帧采集后渲染，再在显示帧边界发布结果。对指定输入/输出事件，
+延迟可分解为
+\begin{equation}
+T_{\rm e2e}=T_{\rm acquire}+T_{\rm queue}+T_{\rm render}
++T_{\rm publish}+T_{\rm scan}+T_{\rm interface}.
+\end{equation}
+各项分别对应采集等待、帧槽/任务等待、渲染、帧边界发布等待、目标像素扫描等待和接口开销。
+它们受事件定义及源帧接受策略影响，应在同一测量口径下记录；
+33.14614 ms 仅为已有模型中的渲染耗时，不能替代上述总和。
+\figplaceholder{端到端延迟分解与测量}{标注同一输入事件的采集、开始渲染、末写完成、结果发布和输出像素时刻，并注明测量设备延迟。}
+
+\section{DDR 数据量与带宽预算}
+DDR 用户接口为 256 bit、100 MHz，理想载荷上限为
+\begin{equation}
+B_{\rm peak}=32\times100\times10^6=3.2\ \text{GB/s}.
+\end{equation}
+该值不是持续可用带宽；命令、行切换、刷新、仲裁和回压均降低实际效率。
+以十进制 MB/s 统计，单帧 RGB565 载荷 $S_f=4,147,200$ bytes，预算为
+\begin{table}[htbp]\centering\small
+\caption{默认路径的数据带宽预算}
+\begin{tabularx}{\textwidth}{p{3.1cm}Yp{3.7cm}}
+\toprule
+数据流 & 统计假设 & 有效载荷带宽 \\
+\midrule
+输入采集写 & 按全部 60 帧/秒接受的预算 & 248.832 MB/s \\
+显示读取 & 每秒读取 60 个完整显示帧 & 248.832 MB/s \\
+结果写回 & 每秒写回 30 个完整结果帧 & 124.416 MB/s \\
+渲染源读取 & 每帧实际读 $R$ 个 256 bit beat & $0.000960R$ MB/s \\
+合计 & 三项固定预算加姿态相关源读取 & $622.080+0.000960R$ MB/s \\
+\bottomrule
+\end{tabularx}
+\end{table}
+源矩形可能在相邻块重复读取，$R$ 随姿态、有效区域和块尺寸变化。
+\fillin{当前 128×32 配置下各姿态的读命令数、beat 数和实测持续带宽}。
+输入帧是否全部接受取决于源槽调度，因此本表采集写项为预算假设。
+历史 $128\times64$ 的源读取计数不能直接填入当前配置。
+
+\section{资源占用与最终时序}
+表~\ref{tab:resources} 以当前位流身份记录及最终实现证据为依据，
+区分综合等效计数和最终物理占用。FF 的综合总量与最终 CLM FF（不含 I/O）
+是不同口径，应在表内明确。
+
+\begin{table}[htbp]\centering\small
+\caption{2026-10-22 基线资源与时序结果}\label{tab:resources}
+\begin{tabularx}{\textwidth}{p{5.4cm}Y}
+\toprule
+项目 & 归档结果及口径 \\
+\midrule
+综合 LUT / FF & 14,571 / 15,006 \\
+综合 APM & 45；器件容量 84 \\
+综合等效 DRM18K & 103 \\
+最终 LUT（含常量和旁路） & 16,878/42,800，约 39.43\% \\
+最终 CLM FF（不含 I/O） & 14,871 \\
+最终 DRM 物理位置 & 104/134，约 77.61\% \\
+锁存器 & 0 \\
+最终快/慢角时序 & All Constraints Met \\
+慢角 100 MHz 渲染域 setup 余量 & +0.873 ns \\
+全部域、双角最小 setup / hold 余量 & +0.121 / +0.053 ns \\
+FIFO Gray 最大偏斜 / 约束 & 1.470 / 6.734 ns \\
+\bottomrule
+\end{tabularx}
+\end{table}
+APM 为工具报告中的算术资源计数，DRM 为片内存储资源位置计数。
+若使用“DSP/BRAM 利用率”等通用表述，应说明与 PDS 资源名称的对应关系。
+\sourcefile{\path{../Pgl50h/bitstream/pc_control_20261022_identity.json}}
+
+\section{版本对比与优化效果}
+\begin{table}[htbp]\centering\small
+\caption{历史基线与当前基线对比（均为归档证据）}
+\begin{tabularx}{\textwidth}{p{4.1cm}YY}
+\toprule
+项目 & 2026-10-10 历史候选 & 2026-10-22 当前候选 \\
+\midrule
+输出块 / 每帧块数 & $128\times64$ / 255 & $128\times32$ / 510 \\
+CP2102 三开关及遥测 & 不包含当前协议 & 已集成 \\
+写突发存储 & 历史实现 & 客户端分布式 RAM、共享读取 \\
+最终 LUT & 19,352/42,800 & 16,878/42,800 \\
+最终 DRM 位置 & 122/134 & 104/134 \\
+最慢观测渲染 & 定向模型测试 32.45705 ms & 当前系统模型 33.14614 ms \\
+慢角渲染域 setup 余量 & +0.462 ns & +0.873 ns \\
+板测状态 & 未完成 & 未完成 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+两版本同时改变块尺寸、控制和写数据结构，压力覆盖也不完全相同；
+这张表说明各自配置的整体取舍，不能视为单因素消融实验。
+\fillin{相同输入、相同配置和约束下的单因素优化对比}。
+
+\section{几何精度与图像质量评价}
+\subsection{坐标误差与直线度}
+对共同有效区域 $\Omega$，以独立浮点参考 $(u_i^*,v_i^*)$ 为基准，定义
+\begin{equation}
+e_i=\sqrt{(u_i-u_i^*)^2+(v_i-v_i^*)^2},\quad
+e_{\max}=\max_{i\in\Omega}e_i,\quad
+e_{\rm RMS}=\sqrt{\frac{1}{|\Omega|}\sum_{i\in\Omega}e_i^2}.
+\end{equation}
+另行统计有效性不一致的坐标数量，避免只在共同有效区域计算而掩盖边界差异。
+对于矫正图像中的直线特征，拟合 $ax+by+c=0$，点到直线距离为
+\begin{equation}
+d_i=\frac{|ax_i+by_i+c|}{\sqrt{a^2+b^2}}.
+\end{equation}
+报告最大值、RMS 和测试区域。线条弯曲、透视斜率变化和物理标尺误差应分别解释。
+
+\subsection{清晰度、有效区域与颜色}
+MTF50/SFR 使用同一倾斜边缘、统一 ROI 与处理参数测量，报告单位
+（如 cycles/pixel 或 LW/PH），并保存完整曲线。
+几何矫正改变局部放大率，因此中心/边缘比较需说明尺度处理。
+黑色区域应分别统计模型判无效区域、边界保护区域和图像本身黑色内容；
+不能仅按 RGB 为零判定几何黑边。
+
+颜色和像素误差应优先与同样经过 RGB565 量化的软件参考比较，
+再单独分析与 RGB888 原图之间的量化损失。Gamma 开关、重采样方式与姿态要固定，
+防止把增强变化算作几何矫正误差。
+
+\begin{table}[htbp]\centering\small
+\caption{客观精度与画质结果模板}
+\begin{tabularx}{\textwidth}{p{3cm}YYY}
+\toprule
+指标 & 零姿态 & 边界/中间姿态 & 方法与证据 \\
+\midrule
+坐标最大/RMS 误差 & \fillin{pixel} & \fillin{pixel} & \fillin{独立参考/有效区域} \\
+有效性不一致数 & \fillin{数量} & \fillin{数量} & \fillin{边界规则} \\
+直线度最大/RMS & \fillin{pixel} & \fillin{pixel} & \fillin{图卡/拟合线} \\
+MTF50 或 SFR & \fillin{数值/单位} & \fillin{数值/单位} & \fillin{中心/边缘 ROI} \\
+无效区域比例 & \fillin{百分比} & \fillin{百分比} & \fillin{有效掩码} \\
+像素 PSNR/SSIM（可选） & \fillin{数值} & \fillin{数值} & \fillin{颜色、Gamma 与参考} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+\figplaceholder{清晰度与直线度测量结果}{展示斜边 ROI、SFR/MTF 曲线、拟合直线及残差图；各图注明标定、姿态、采样和 Gamma 状态。}
+
+\section{功耗与长期稳定性}
+\fillin{测量点、电压、电流、静态/动态功耗、温度、环境条件、运行时长与仪表精度}。
+板级输入功耗包含外围芯片，不能直接写成 FPGA 核心功耗。
+如只有估算结果，应列工具、活动率与温度假设，并与实测区分。

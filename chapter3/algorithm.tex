@@ -1,0 +1,144 @@
+\chapter{相机模型与几何矫正算法}
+\label{chap:algorithm}
+\section{标定参数与坐标约定}
+\subsection{相机内参与畸变系数}
+工程使用 \path{calibration/camera_20260930.json} 中用户确认的 MATLAB 标定参数。
+将 MATLAB 的内参存储矩阵转置为列向量投影常用形式，可写为
+\begin{equation}
+K=\begin{bmatrix}
+748.4469&0&944.9033\\
+0&748.0773&522.3963\\
+0&0&1
+\end{bmatrix}.
+\end{equation}
+径向系数为 $k_1=0.0099$、$k_2=-0.0434$，切向系数为 $p_1=p_2=0$。
+输入分辨率为 $1920\times1080$，输出内参与输入保持一致。
+该文件记录了参数来源，但未包含完整标定图集、重投影误差或镜头工作条件；
+这些信息应作为正式报告的标定证据补齐。
+
+\begin{table}[htbp]\centering\small
+\caption{标定过程记录模板}
+\begin{tabularx}{\textwidth}{p{3.3cm}Y}
+\toprule
+记录项目 & 内容 \\
+\midrule
+相机、镜头与焦距状态 & \fillin{型号、对焦状态、曝光及是否锁定} \\
+标定板与采集条件 & \fillin{棋盘格/圆点板规格、物理间距、图像数量与姿态分布} \\
+图像坐标约定 & 标定参数为 1 基像素坐标；RTL 接口为 0 基 \\
+标定方法与软件 & MATLAB cameraParams；\fillin{函数、版本与参数设置} \\
+重投影误差 & \fillin{均值、RMS、最大值及单位 pixel} \\
+原始数据及参数版本 & \fillin{图集、脚本、导出文件和哈希} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{1 基标定与 0 基像素的转换}
+设输出像素接口坐标为 $(u,v)$，其范围分别为 $0\ldots1919$ 和 $0\ldots1079$。
+为保持与 1 基标定主点一致，归一化视线为
+\begin{equation}
+x=\frac{u+1-c_x}{f_x},\qquad y=\frac{v+1-c_y}{f_y},\qquad
+\boldsymbol d=[x,y,1]^{\mathsf T}.
+\end{equation}
+最终投回源像素坐标时再减去 1。若直接将标定主点代入 0 基公式而省略此转换，
+会引入像素中心偏差。正式误差比较必须使用同一坐标约定。
+
+\section{基于 yaw/pitch 的逆投影}
+\subsection{姿态量化及旋转顺序}
+IMU 协议传送有符号 Q2048 弧度，实际角度为
+\begin{equation}
+\theta=\frac{q}{2048},\qquad
+\theta_{\rm deg}=\frac{q}{2048}\frac{180}{\pi}.
+\end{equation}
+分块渲染器将 yaw/pitch 限制在 $q\in[-536,536]$，约对应每轴 $\pm15^\circ$。
+投影器独立模块的默认限值与此不同，应以顶层实际实例化后的分块配置为准。
+roll 虽可由串口协议接收，当前不进入投影变换。
+
+按 RTL 运算顺序，先施加 yaw 变换，再施加 pitch 变换。令
+$c_\psi=\cos\psi$、$s_\psi=\sin\psi$、
+$c_\theta=\cos\theta$、$s_\theta=\sin\theta$，则
+\begin{align}
+X_1&=c_\psi x+s_\psi,&Y_1&=y,&Z_1&=c_\psi-s_\psi x,\\
+X&=X_1,&Y&=c_\theta Y_1-s_\theta Z_1,&
+Z&=s_\theta Y_1+c_\theta Z_1.
+\end{align}
+这一表达式对应工程坐标轴、旋转顺序及正负号约定；其与 IMU 物理安装方向的关系，
+应通过已知方向的机械转动验证。对于有效前向视线，计算
+\begin{equation}
+x_n=X/Z,\qquad y_n=Y/Z.
+\end{equation}
+工程包含深度阈值及数值支持域检查，避免对相机后方或不稳定视线继续采样。
+
+\subsection{逐帧快照与动态更新}
+姿态经 UART 接收、协议校验和跨域同步后，在源帧 SOF 锁存。
+每个源帧携带独立姿态快照，渲染时不读取随时变化的实时角度，防止单帧变换撕裂。
+该方式属于逐帧姿态补偿；当前没有按曝光时间进行 IMU/图像时间对齐，
+也没有实现滚动快门的逐行运动补偿。
+\fillin{安装轴映射、零点建立方法、姿态更新率与时间同步测试}。
+
+\section{径向与切向畸变模型}
+令 $r^2=x_n^2+y_n^2$，二阶径向缩放系数为
+\begin{equation}
+L(r)=1+k_1r^2+k_2r^4.
+\end{equation}
+加入切向项后，源相机畸变坐标为
+\begin{align}
+x_d&=x_n L(r)+2p_1x_ny_n+p_2(r^2+2x_n^2),\\
+y_d&=y_n L(r)+p_1(r^2+2y_n^2)+2p_2x_ny_n.
+\end{align}
+最终源图像的 0 基采样坐标为
+\begin{equation}
+u_s=f_xx_d+c_x-1,\qquad v_s=f_yy_d+c_y-1.
+\end{equation}
+这里从理想输出像素反求畸变源图像位置，因此在逆映射内部使用相机的正向畸变模型。
+默认系数 $p_1=p_2=0$；RTL 参数中保留切向项，非零切向情况下的准确性和吞吐应单独验证。
+
+\section{重采样与无效区域处理}
+\subsection{默认最近邻采样}
+默认分块渲染器对有效坐标执行最近邻采样，非负坐标可表示为
+\begin{equation}
+\hat u=\lfloor u_s+0.5\rfloor,\quad
+\hat v=\lfloor v_s+0.5\rfloor,\quad
+I_{\rm out}(u,v)=I_{\rm src}(\hat u,\hat v).
+\end{equation}
+源坐标使用 Q14，RTL 由整数部分和最高小数位得到最近邻位置。
+投影器沿用包含四点采样支持的有效性保护，实际边界以 \path{map_valid} 为准，
+不能简单假设所有落在图像外框内的连续坐标均有效。
+镜头与姿态开关同时关闭时，当前版本采用精确同坐标复制，保留末行、末列。
+
+\subsection{双线性公式与当前适用路径}
+若 $i=\lfloor u_s\rfloor$、$j=\lfloor v_s\rfloor$，
+$\alpha=u_s-i$、$\beta=v_s-j$，双线性采样为
+\begin{align}
+I_{\rm out}={}&(1-\alpha)(1-\beta)I(i,j)+\alpha(1-\beta)I(i+1,j)\notag\\
+&+(1-\alpha)\beta I(i,j+1)+\alpha\beta I(i+1,j+1).
+\end{align}
+该公式供原理及方案比较使用。工程的 \path{INTERPOLATION_MODE=0} 选择历史串行路径；
+当前分块实时结果来自 \path{INTERPOLATION_MODE=1}。
+\guide{如后续实现分块双线性，应补充四邻域跨块/跨行读取、颜色通道位宽、舍入、
+带宽和完整链路帧率；不能仅切换参数后沿用最近邻性能数据。}
+
+逆映射避免正向离散投影造成的未覆盖像素，但无法恢复视野之外的信息。
+当前无效区域直接置黑，没有额外拉伸或内容填充。赛题的黑边/空洞要求
+需结合视场、裁切策略和实物观感另行验收。
+\figplaceholder{不同姿态下的几何矫正对比}{同一标定、同一测试图卡，排列原图、浮点参考、FPGA 输出及局部放大图，标注姿态和有效区域。}
+
+\section{定点格式与误差分析模板}
+\begin{table}[htbp]\centering\small
+\caption{主要定点量及实现方式}
+\begin{tabularx}{\textwidth}{p{3cm}YY}
+\toprule
+对象 & 当前格式/实现 & 分析重点 \\
+\midrule
+yaw/pitch & 有符号 Q2048 弧度 & 量化、限幅、零点与安装方向 \\
+三角函数 & Q14，一度间隔表与线性插值 & 查表插值误差及角度输入误差 \\
+内参/畸变系数 & Q14；$k_1=162/2^{14}$，$k_2=-711/2^{14}$ & 参数量化对边缘位置的影响 \\
+归一化视线与透视除法 & 小数位数 18，精确流水除法 & 中间范围、截断与小深度保护 \\
+源像素坐标 & 有符号 32 bit，14 位小数 & 坐标误差和最近邻阈值跳变 \\
+图像存储 & RGB565 & 与 RGB888 的颜色量化差异 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+\guide{Q 格式在此按缩放比例解释，不能把“14 位小数”当作总位宽。
+补充关键中间变量的最大范围、符号扩展和舍入方式；
+用独立浮点基准给出最大/RMS 误差及边界有效性差异。}
+\sourcefile{\path{../Pgl50h/src/video/pose/pose_inverse_project_q14.v}；\path{pose_renderer_tiled.v}（同目录）}

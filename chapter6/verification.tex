@@ -1,0 +1,119 @@
+\chapter{验证方案与实板测试设计}
+\label{chap:verification}
+\section{验证层次与证据管理}
+验证分为独立算法基准、RTL 单模块、并发系统模型、厂商 DDR 接口、
+FPGA 实现及实板演示。各层关注不同问题，应保留配置、源码身份、工具版本、
+输入条件和原始日志。已有工程结果为本章提供基础，实板记录表供后续填写。
+
+\begin{table}[htbp]\centering\small
+\caption{工程已有验证入口及用途}
+\begin{tabularx}{\textwidth}{p{6cm}Y}
+\toprule
+入口（相对 \path{Pgl50h/}） & 重点 \\
+\midrule
+\path{tests/verify_main_contract.py} & 工程源文件/IP 清单、主配置与引用 \\
+\path{tests/run_rtl_regressions.py} & IMU、CDC、投影器、FIFO、存储接口及兼容路径 \\
+\path{tests/run_adaptive_gamma.py} & 全 LUT、场景分类、迟滞、时序对齐与满帧输入 \\
+\path{tests/run_pc_control.py} & 二进制协议、功能开关、SOF 原子应用与统计 \\
+\path{tests/run_pose_tiled.py --full} & 全像素渲染、边缘块、回压和最后写完成 \\
+\path{tests/run_pose_tiled_integration.py --full} & 并发采集/渲染/显示、新帧率、帧槽所有权 \\
+\path{tests/run_pose_vendor_ddr.py} & 厂商 DDR 控制器/PHY、突发和边界接口 \\
+\path{tools/build_pose_tiled.py} & 综合/实现及源码、时序、CDC、位流身份审计 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{独立几何与像素精度验证}
+\subsection{参考模型与用例设计}
+使用独立双精度软件模型实现与第~\ref{chap:algorithm}~章一致的坐标约定、
+旋转顺序、畸变公式和边界规则。先比较坐标，再比较重采样及颜色量化，
+分别定位参数量化、投影计算、最近邻阈值跳变和 RGB565 的误差来源。
+
+用例至少覆盖零姿态、单轴与双轴边界、中间角度、限幅输入、无效深度、
+图像末行/末列、非完整块、全黑块、容量等于上限和超出上限。
+非零切向系数与后续 roll/双线性扩展应建立独立测试组。
+
+已有分块渲染器测试使用另一个投影器实例生成坐标参考，主要证明调度、缓存及采样
+与该投影器一致，不能单独作为独立浮点模型精度结论。
+\fillin{参考模型文件、版本、数据集与坐标对比结果}。
+
+\subsection{控制与异常用例}
+三个独立开关共有八种掩码，应覆盖 SOF 前后切换、pending、忙响应和无输入帧场景。
+协议测试应包含错误 XOR、错误长度、半包超时和重同步。
+DDR 测试应覆盖 AW/首拍同周期、1～16 beat、WREADY 停顿、错误 LAST、
+最后写完成与下一帧调度相邻周期等情况，并检查异常时帧槽不会提前释放。
+
+\section{当前完整链路仿真条件与结果}
+当前归档测试实例化实际 wrapper、异步 FIFO、渲染器与 DDR 仲裁器，
+并运行 Gamma 和 RGB565 输入处理。像素扫描为 $2200\times1125$、148.5 MHz，
+有效图像为 $1920\times1080$。DDR 行为模型采用 32 拍命令延迟、25\% 数据停顿、
+读写共享数据通道，并每 780 拍暂停 35 拍模拟刷新。
+
+\begin{table}[htbp]\centering\small
+\caption{2026-10-22 当前基线完整系统仿真结果}\label{tab:simulation}
+\begin{tabularx}{\textwidth}{p{5.5cm}Y}
+\toprule
+项目 & 归档结果 \\
+\midrule
+输入帧数 / 不同结果发布数 & 28 / 13 \\
+稳态新帧发布率 & 30.000030 fps \\
+最大发布间隔 & 3,333,330 个 100 MHz 时钟周期 \\
+最慢观测渲染 & 3,314,614 拍，即 33.14614 ms \\
+捕获 FIFO 峰值 & 15/512 个 256 bit 数据字 \\
+显示像素比较次数 & 51,840,000 \\
+测试覆盖记录 & 11 种姿态激励、全部八种控制掩码 \\
+仿真结果 & PASS，0 errors；日志另有 4 条 warning \\
+\bottomrule
+\end{tabularx}
+\end{table}
+日志 warning 包括测试平台 Gamma 统计元数据端口未连接，正式提交应审查并说明用途及影响。
+姿态激励与开关组合下可能实际禁用部分变换，测试覆盖不代表所有姿态和开关的笛卡尔积。
+当前整帧模型不包含物理 CP2102 及厂商 DDR PHY；实际串口、DDR 和显示仍需实测。
+\sourcefile{\path{../Pgl50h/verification/pds_pc_control_write_ram_20261022/simulation/result.log}}
+
+\section{PDS 实现与 CDC 验证}
+当前位流已完成综合、布局布线与生成。归档记录为最终双角时序
+\textsf{All Constraints Met}，并单独审计四条 FIFO Gray 总线的偏斜与位覆盖。
+报告应同时保留资源、setup/hold、recovery/removal、脉宽及 I/O 约束覆盖，
+不能只截取一行时序摘要。
+\figplaceholder{最终实现时序与 CDC 审计}{插入当前版本的快/慢角时序摘要、关键路径和 FIFO Gray 偏斜覆盖截图，保留构建日期和配置。}
+
+\section{实板测试步骤与记录模板}
+\subsection{硬件链路及功能验收}
+\begin{enumerate}
+\item 记录硬件、软件、标定与位流版本，核对目标器件和位流哈希，连接电源、HDMI、IMU 与 CP2102。
+\item 下载当前候选后确认初始化及视频时序，以固定图卡检查分辨率、颜色、首末像素和连续显示。
+\item 验证八种开关组合、查询状态、LED 与 Gamma 遥测；分别记录 ACK、SOF 应用和画面切换时间。
+\item 在标定图卡下测试零姿态、单轴、双轴和中间角度，记录安装方向、机械角度及输出结果。
+\item 执行长时间运行、输入中断/恢复和连续姿态变化，保存帧序号、错误事件及视频。
+\end{enumerate}
+\begin{table}[htbp]\centering\small
+\caption{实板功能验收表}
+\begin{tabularx}{\textwidth}{p{3cm}YYY}
+\toprule
+项目 & 条件/操作 & 结果与判据 & 证据编号 \\
+\midrule
+HDMI 输入与显示 & \fillin{信号源/模式} & \fillin{有效像素、颜色} & \fillin{照片/日志} \\
+IMU 动态补偿 & \fillin{角度与速率} & \fillin{方向、响应} & \fillin{视频/角度记录} \\
+CP2102/LED & \fillin{掩码与命令} & \fillin{帧原子生效} & \fillin{抓包/波形} \\
+自适应 Gamma & \fillin{光照场景} & \fillin{曲线、亮度} & \fillin{图像/遥测} \\
+连续稳定性 & \fillin{时长与温度} & \fillin{撕裂、掉帧、恢复} & \fillin{长时日志} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{帧率、延迟及画质测量}
+帧率测试应在输入嵌入独立帧号或可追踪图案，统计完成矫正并输出的不同源帧，
+避免将 60 Hz 扫描或重复帧计为 60 fps 处理。可使用逻辑分析仪、片内探针或采集视频，
+记录输入 SOF、帧完成、结果发布和对应输出事件。
+
+延迟可采用同一闪烁/触发事件的输入与输出对照，记录采集卡、显示设备或高速相机
+引入的测量延迟。分别报告渲染时间和端到端时间，保留最小值、平均值、P95 及最大值。
+画质测量使用真实棋盘格、倾斜边缘或网格线，保存无增强参考、增强结果及有效 ROI。
+详细指标定义与待填表见第~\ref{chap:performance}~章。
+
+\section{现场演示方案}
+建议依次展示：原始几何链路、单独镜头去畸变、加入姿态补偿、加入自适应 Gamma，
+并用上位机控制和状态遥测解释当前模式。现场改变物理角度及测试图卡，
+同时展示输出稳定性与有效视野。超出当前角度范围的限幅行为应可观察、可说明。
+\fillin{演示脚本、图卡清单、人员分工、演示视频路径及现场验收结果}。

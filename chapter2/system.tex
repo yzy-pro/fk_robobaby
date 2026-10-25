@@ -1,0 +1,191 @@
+\chapter{系统总体方案设计}
+\label{chap:system}
+
+
+\section{开发平台与器件选型}
+本系统选用搭载紫光同创 Logos 系列 PGL50H FPGA 的 MES50HP（盘古 50）开发板，
+采用紫光同创 PDS 软件完成逻辑设计与实现。平台选型主要考虑视频流处理的并行性、
+定点坐标变换的运算需求，以及图像缓存和外部接口的扩展能力。
+
+\subsection{FPGA 芯片及资源配置}
+MES50HP 核心板采用的 FPGA 完整型号为 PGL50H-6IFBG484，
+属于紫光同创 Logos 系列，采用 40 nm 工艺，速度等级为 $-6$，温度等级为工业级，
+封装为 FBG484，共有 484 个引脚。实际 PDS 工程将器件系列、型号、封装和速度等级
+分别配置为 Logos、PGL50H、FBG484 和 $-6$，实现记录中的器件标识为
+PGL50H-FBG484-6，与板卡手册给出的型号在这些配置项上一致。
+根据硬件手册第 2.2.1 节，芯片主要逻辑与存储资源如表~\ref{tab:fpga-resources} 所示\cite{board}。
+
+\begin{table}[htbp]\centering\small
+\caption{PGL50H FPGA 主要资源及其在本系统中的用途}
+\label{tab:fpga-resources}
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{4cm}>{\raggedright\arraybackslash}p{3.5cm}Y}
+\toprule
+资源类型 & 器件资源总量 & 本系统中的主要用途 \\
+\midrule
+六输入查找表（LUT6） & 42\,800 个 & 图像预处理、坐标变换及控制逻辑 \\
+触发器（FF） & 64\,200 个 & 流水线寄存、状态保持及跨时钟域同步 \\
+片内存储块（DRM） & 134 个，每个 18 Kbit & 图像分块缓存、查找表及 FIFO \\
+乘法运算单元（APM） & 84 个 & 定点投影变换中的乘法运算 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+畸变矫正需要对输出像素逐点计算源图像坐标，并与视频采集、缓存读写和显示输出
+协同运行。FPGA 可将上述功能组织为并行模块和多级流水线；其中，APM 为定点乘法
+提供专用运算资源，DRM 用于构建局部图像缓存和数据缓冲，LUT 与触发器实现
+采样控制、数据调度和接口时序。上述资源配置为本系统的分块逆映射方案提供了硬件基础，
+具体资源占用与时序结果在实现验证章节中给出。
+
+\subsection{MES50HP 开发板}
+MES50HP 由核心板和扩展底板组成，两者通过高速板对板连接器连接。
+核心板集成 FPGA、存储器、配置 Flash、电源及复位电路，构成 FPGA 最小运行系统；
+扩展底板提供视频、通信及通用 I/O 接口，便于连接输入输出设备并开展系统联调\cite{board}。
+这种结构兼顾了核心处理电路的集成与外围接口的扩展，适合本系统从算法验证到完整
+视频链路搭建的开发过程。
+
+核心板提供 50 MHz、27 MHz 单端时钟源及 125 MHz 差分时钟源，其中
+50 MHz 用作 FPGA 系统参考时钟，125 MHz 用作 HSST 高速收发器参考时钟。
+本工程使用板载 50 MHz 和 27 MHz 参考时钟，并通过 PLL 生成所需的内部工作时钟
+和视频输出像素时钟。板卡已有的时钟、电源、复位和 JTAG 配置条件，
+为逻辑下载与调试提供了基础。各外部设备的型号、接口电路及连接方式在下一节说明。
+
+\subsection{PDS 开发工具与工程组织}
+本系统使用紫光同创 Pango Design Suite（PDS）作为 FPGA 开发工具，
+工程归档版本为 PDS 2025.2 build 211867。PDS 面向紫光同创 FPGA 提供从
+HDL 设计输入、逻辑综合、器件映射、布局布线到静态时序分析及位流生成的实现流程，
+并配合厂商 IP 完成时钟与存储接口等基础模块的集成。
+
+实际主工程文件为 \path{EmbFPGA.pds}，顶层模块为 \path{hdmi_ddr3_top}。
+工程以 Verilog HDL 描述图像处理与控制逻辑，RTL 源码集中在 \path{src/} 目录；
+PLL、读写缓存及 DDR3 控制器等 IP 位于 \path{ipcore/} 目录，并通过
+\path{.idf} 文件加入工程。引脚、电气属性和时序约束由
+\path{src/constraints/hdmi_ddr3_top.fdc} 管理。
+开发时依据板卡手册核对引脚及接口电平，在 PDS 中完成综合与布局布线后，
+结合资源报告和时序报告检查实现结果，再生成用于板级验证的配置位流。
+固定工具版本、目标器件与约束文件，有助于保持后续功能迭代及验证结果的可追溯性。
+\sourcefile{\path{../Pgl50h/EmbFPGA.pds}；\path{../Pgl50h/bitstream/pc_control_20261022_identity.json}}
+
+\section{系统硬件设计}
+\subsection{FPGA器件与板卡选型}
+本项目使用紫光同创的MES50HP开发板,该板搭载Logos系列的PGL50H FPGA芯片。
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.8\textwidth]{chapter2/figures/tmp.png}
+    \caption{PGL50H  芯片实物图}
+    \label{fig:pgl50h}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.8\textwidth]{chapter2/figures/tmp.png}
+    \caption{MES50HP 开发板实物图}
+    \label{fig:mes50hp}
+\end{figure}
+
+\subsection{摄像头选型与视频输入}
+摄像头选用杰锐微通USB工业相机,支持1920x1080@60fps分辨率输出。PC通过opencv捕获相机原始图像,通过PC副屏hdmi输出到开发板的hdmi-in接口,经过板载ms7200芯片转为为rgb888实现视频输入。
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.8\textwidth]{chapter2/figures/tmp.png}
+    \caption{杰锐微通USB工业相机实物图}
+    \label{fig:jerry_camrea}
+\end{figure}
+
+\subsection{视频输出与显示接口}
+处理后的图像通过板载ms7210芯片编码后,经开发板的hdmi-out接口输出,经过绿联USB采集卡转换为USB视频流,在PC端显示。
+
+% \begin{figure}[htbp]
+%     \centering
+%     \includegraphics[width=0.8\textwidth]{chapter2/figures/tmp.png}
+%     \caption{绿联USB采集卡实物图}
+%     \label{fig:ugreen_capture}
+% \end{figure}
+
+\subsection{IMU设计与姿态输入}
+imu使用robomasterC型开发板,其搭载了stm32h407主控与bmi088惯性测量单元,可以通过spi通信获取bmi088原始数据,并通过姿态解算算法将原始三轴加速度计数据和三轴陀螺仪数据转换为yaw,pitch,roll三轴欧拉角姿态信息,最后经过int16量化后通过uart串口发送给开发板,实现姿态输入。
+
+% \begin{figure}[htbp]
+%     \centering
+%     \includegraphics[width=0.8\textwidth]{chapter2/figures/tmp.png}
+%     \caption{imu实物图}
+%     \label{fig:ugreen_capture}
+% \end{figure}
+
+\subsection{云台设计}
+自研二自由度云台,使用达妙电机驱动yaw,pitch轴,实现摄像头姿态精准控制。
+
+% \begin{figure}[htbp]
+%     \centering
+%     \includegraphics[width=0.8\textwidth]{chapter2/figures/tmp.png}
+%     \caption{二自由度云台实物图}
+%     \label{fig:ugreen_capture}
+% \end{figure}
+
+\subsection{上位机设计与控制接口}
+通过板载cp2102 usb转串口芯片,将开发板的uart串口连接到PC端,实现上位机对开发板的控制和状态监控。
+
+% \begin{figure}[htbp]
+%     \centering
+%     \includegraphics[width=0.8\textwidth]{chapter2/figures/tmp.png}
+%     \caption{上位机控制页面展示}
+%     \label{fig:ugreen_capture}
+% \end{figure}
+
+
+\section{总体数据通路}
+图~\ref{fig:architecture} 给出默认路径。RGB888 输入先完成帧自适应 Gamma，
+再转换为 RGB565 以降低帧缓存带宽。采集、渲染和显示并行运行，矫正器使用
+源帧对应的姿态和功能快照生成完整结果帧，显示端只在安全的帧边界交接结果。
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[
+  block/.style={draw=TemplateBlue,rounded corners,fill=TemplateGray,
+    align=center,minimum height=1.15cm,text width=4cm,font=\small},
+  arrow/.style={-{Latex},thick,draw=TemplateBlue},node distance=0.55cm and 1.3cm]
+\node[block] (in) {HDMI 输入 / MS7200\\RGB888};
+\node[block,below=of in] (gamma) {帧自适应 Gamma\\RGB888 $\to$ RGB565};
+\node[block,below=of gamma] (source) {DDR3 源帧槽 0 / 3\\帧姿态与功能快照};
+\node[block,below=of source] (map) {逐像素定点逆投影\\$128\times32$ 双槽分块};
+\node[block,right=of map] (sample) {源矩形缓存与采样\\结果块突发写回};
+\node[block,right=of source] (result) {DDR3 结果帧槽 1 / 2\\VS 边界交接完整结果};
+\node[block,right=of gamma] (out) {RGB565 $\to$ RGB888\\MS7210 / HDMI 60 Hz};
+\node[block,right=of in] (ctrl) {IMU UART / CP2102\\姿态、控制与统计遥测};
+\draw[arrow] (in)--(gamma);
+\draw[arrow] (gamma)--(source);
+\draw[arrow] (source)--(map);
+\draw[arrow] (map)--(sample);
+\node[text=TemplateBlue,inner sep=0pt] at ($(sample.north)!0.5!(result.south)$) {$\uparrow$};
+\node[text=TemplateBlue,inner sep=0pt] at ($(result.north)!0.5!(out.south)$) {$\uparrow$};
+\draw[arrow,dashed] (ctrl.west)--++(-0.35,0)|- (source.east);
+\end{tikzpicture}
+\caption{默认配置的系统数据与控制通路}\label{fig:architecture}
+\end{figure}
+
+\section{方案选择与实现边界}
+\subsection{逆映射与分块访存方案}
+正向映射由输入像素寻找输出位置，可能出现输出冲突和未覆盖像素。
+本工程采用输出驱动的逆映射，对每个输出像素计算源坐标，再执行采样。
+源坐标在外部帧存储中分布不连续，因此使用分块包围矩形与片内缓存，
+将多个随机像素访问转换为行内突发读取。
+
+分块仅用于调度和存储，块内仍逐像素计算逆投影，不使用四角网格插值。
+输出保持与输入相同的标定内参，不额外裁切或调整焦距；映射超出有效源域时输出黑色。
+
+\subsection{精度、资源与吞吐的取舍}
+RGB565 将单像素存储量由 24 bit 降为 16 bit，代价是颜色量化。
+默认最近邻采样降低访存和采样开销，但需评估边缘锯齿与高频纹理误差。
+当前采用精确流水除法路径，实验性倒数 LUT 默认关闭；历史串行双线性路径
+不具有当前分块路径的 30 fps 验证结果。
+\fillin{与 CPU/GPU 或串行 FPGA 路径的同条件定量对比}。
+
+\section{时钟域与帧级工作过程}
+系统参考时钟为 50 MHz，视频参考为 27 MHz；视频 PLL 产生 148.5 MHz 输出像素时钟，
+DDR 用户接口/渲染域为 100 MHz。输入像素时钟由 HDMI 接收侧提供，
+即使同为 148.5 MHz，也应按工程的实际异步关系处理。
+
+帧级过程为：输入 SOF 提交功能设置并锁存姿态，完成源帧采集后允许调度渲染；
+渲染期间源槽和结果槽的归属保持不变；最后一个 DDR 写事务完成后登记结果，
+显示侧在 VS 边界及相关读事务安全结束后交接。处理未完成时继续显示上一完整结果帧。
+\figplaceholder{硬件连接与演示环境}{插入开发板、HDMI 输入/输出、IMU、CP2102 和电源的连接照片，标注端口及信号方向。}
+\sourcefile{\path{../Pgl50h/src/top/hdmi_ddr3_top.v}；\path{../Pgl50h/src/constraints/hdmi_ddr3_top.fdc}}
