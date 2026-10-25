@@ -1,0 +1,353 @@
+{
+  "checked_at": "2026-10-25T14:24:17.734846+08:00",
+  "repository": "git@github.com:guizipiaoxue/EmbFPGA.git",
+  "branch": "master/fpga",
+  "commit": "aca012e107b45a475c89c8da70706693b82a9b72",
+  "local_root": "C:\\FPGA\\EmbFPGA_final_master_fpga_20261025",
+  "report": "report/02_实时性能与资源效率.md",
+  "build_input_count": 152,
+  "intentional_source_changes_from_final_baseline": [],
+  "evidence_hash_mismatches": [],
+  "authoritative_version": {
+    "source": "repository",
+    "branch": "master/fpga",
+    "commit": "aca012e107b45a475c89c8da70706693b82a9b72",
+    "active_sources_match_archived_final": true,
+    "board_validation": {
+      "reported_by": "user",
+      "reported_on": "2026-10-25",
+      "repository_version_board_tested": true,
+      "exact_programmed_bitstream_hash_verified_this_session": false,
+      "new_board_measurement_this_session": false
+    }
+  },
+  "timing_fix_20261025": {
+    "adoption_status": "not_adopted",
+    "active_main_uses_experiment": false,
+    "archived_validation": {
+      "tool": "PDS2022.2-SP3",
+      "source_commit": "aca012e107b45a475c89c8da70706693b82a9b72",
+      "source_file_count": 152,
+      "source_changes": [],
+      "process": {
+        "exit_code": 0,
+        "elapsed_seconds": 650.0814798000001,
+        "finished_at": "2026-10-25T13:57:56.844582+08:00",
+        "source_changes": [],
+        "full_build_passed": false,
+        "board_tested": false,
+        "tool_errors": []
+      },
+      "timing_passed": true,
+      "cdc_passed": true,
+      "synthesis_resources": {
+        "lut": 13228,
+        "ff": 14151,
+        "apm": 45.0,
+        "drm_equivalent": 102.5,
+        "distributed_ram_lut": 588,
+        "latches": 0
+      },
+      "routed_resources": {
+        "lut": 13262.0,
+        "ff": 14016.0,
+        "apm": 45.0,
+        "drm_equivalent": 102.5
+      },
+      "synthesis_raw": {
+        "LUT_raw_lines": [
+          "GTP_LUT1                    108 uses",
+          "GTP_LUT2                    833 uses",
+          "GTP_LUT3                   1680 uses",
+          "GTP_LUT4                    872 uses",
+          "GTP_LUT5                   1985 uses",
+          "GTP_LUT5CARRY              6146 uses",
+          "GTP_LUT5M                   828 uses",
+          "GTP_MUX2LUT6                 83 uses",
+          "GTP_MUX2LUT7                  8 uses",
+          "Total LUTs: 13228 of 42800 (30.91%)",
+          "\tLUTs as dram: 588 of 17000 (3.46%)",
+          "\tLUTs as logic: 12640"
+        ],
+        "Register_raw_lines": [
+          "Total Registers: 14151 of 64200 (22.04%)",
+          "  Clock Enable    Sync Set/Reset    Async Set/Reset    Total Registers"
+        ],
+        "APM_raw_lines": [
+          "GTP_APM_E1                   45 uses",
+          "APMs:",
+          "Total APMs = 45.00 of 84 (53.57%)",
+          "| Module Inst Name                                               | LUT       | FF        | Distributed RAM     | APM     | DRM       | ADC     | CGRA     | CRYSTAL     | DLL     | DQSL     | EFUSECODE     | FLSIF     | HMEMC     | HSST     | IO      | IOCKDIV     | IOCKDLY     | IOCKGATE     | IPAL     | LUT CARRY     | LUT6 MUX     | LUT7 MUX     | LUT8 MUX     | OSC     | PCIE     | PLL     | RCKB     | RESCAL     | SCANCHAIN     | START     | UDID     | USCM     ",
+          "Endpoint    : g_pose_frame_buffer.u_frame_buffer/g_tiled.u_renderer/N648/RSTM (GTP_APM_E1)",
+          "                                                                           f       g_pose_frame_buffer.u_frame_buffer/g_tiled.u_renderer/N648/RSTM (GTP_APM_E1)",
+          "                                                                           r       g_pose_frame_buffer.u_frame_buffer/g_tiled.u_renderer/N648/CLK (GTP_APM_E1)",
+          "Endpoint    : g_pose_frame_buffer.u_frame_buffer/g_tiled.u_renderer/u_projector/N1049/RSTM (GTP_APM_E1)",
+          "                                                                           f       g_pose_frame_buffer.u_frame_buffer/g_tiled.u_renderer/u_projector/N1049/RSTM (GTP_APM_E1)",
+          "                                                                           r       g_pose_frame_buffer.u_frame_buffer/g_tiled.u_renderer/u_projector/N1049/CLK (GTP_APM_E1)",
+          "Endpoint    : g_pose_frame_buffer.u_frame_buffer/g_tiled.u_renderer/u_projector/N1057/RSTM (GTP_APM_E1)",
+          "                                                                           f       g_pose_frame_buffer.u_frame_buffer/g_tiled.u_renderer/u_projector/N1057/RSTM (GTP_APM_E1)"
+        ],
+        "DRM_raw_lines": [
+          "GTP_DRM18K                  102 uses",
+          "GTP_DRM9K                     1 use",
+          "DRM18K:",
+          "Total DRM18K = 102.5 of 134 (76.49%)",
+          "| Module Inst Name                                               | LUT       | FF        | Distributed RAM     | APM     | DRM       | ADC     | CGRA     | CRYSTAL     | DLL     | DQSL     | EFUSECODE     | FLSIF     | HMEMC     | HSST     | IO      | IOCKDIV     | IOCKDLY     | IOCKGATE     | IPAL     | LUT CARRY     | LUT6 MUX     | LUT7 MUX     | LUT8 MUX     | OSC     | PCIE     | PLL     | RCKB     | RESCAL     | SCANCHAIN     | START     | UDID     | USCM     ",
+          "Endpoint    : g_pose_frame_buffer.u_frame_buffer/u_display_fifo/memory_0/CEB (GTP_DRM18K)",
+          "                                                                           r       g_pose_frame_buffer.u_frame_buffer/u_display_fifo/memory_0/CEB (GTP_DRM18K)",
+          "                                                                           r       g_pose_frame_buffer.u_frame_buffer/u_display_fifo/memory_0/CLKB (GTP_DRM18K)",
+          "Endpoint    : g_pose_frame_buffer.u_frame_buffer/u_display_fifo/memory_1/CEB (GTP_DRM18K)",
+          "                                                                           r       g_pose_frame_buffer.u_frame_buffer/u_display_fifo/memory_1/CEB (GTP_DRM18K)",
+          "                                                                           r       g_pose_frame_buffer.u_frame_buffer/u_display_fifo/memory_1/CLKB (GTP_DRM18K)",
+          "Endpoint    : g_pose_frame_buffer.u_frame_buffer/u_display_fifo/memory_2/CEB (GTP_DRM18K)"
+        ]
+      },
+      "generated_bitstreams": [
+        {
+          "path": "generate_bitstream/hdmi_ddr3_top.sbit",
+          "bytes": 2101696,
+          "sha256": "b0bfbe96ed5bcb8ce765144e1831b7baf972ed53f64c937b172e4d54f0ef74f8"
+        }
+      ],
+      "full_build_passed": true,
+      "board_tested": false,
+      "simulation_source_changes": [],
+      "functional_regression_passed": true,
+      "timing_fix": true,
+      "recommended_for_board_test": true,
+      "qualification": "timing_and_RTL_passed_board_unverified",
+      "changes_from_archived_final": {
+        "src/video/pose/fram_buf_pose.v": {
+          "before_sha256": "175d062e630fdcb3bcac171bdd6f0db9e42b3d62e5a44968ab334b57f9a8d1b3",
+          "after_sha256": "d4757d4e300150d4b54bd6b5e8e1c1dc9093bd25fda95b5f90099ccd2732ee73"
+        },
+        "src/video/pose/pose_renderer_tiled.v": {
+          "before_sha256": "182e4d773b0b8a3e4da27c34bf1f0db5e07a1adbed9696a00f580c7aa5d46b59",
+          "after_sha256": "3ff25c8de3288baea9f636ff333179a5a8f9a8d9865b1e5f736e01e4cef66c78"
+        }
+      }
+    }
+  },
+  "historical_candidate_20261024": {
+    "path": "bitstream/EmbFPGA_1920_timing_review_20261024.sbit",
+    "sha256": "f1551298f94da0f88615edeb0acc843266f2f07ea191a2a1058a9e882e4b772e",
+    "board_tested": false
+  },
+  "historical_20261024_synthesis_resources": {
+    "lut": 14565,
+    "flip_flops": 15010,
+    "apm": 45,
+    "drm18k_equivalent": 103,
+    "latches": 0
+  },
+  "historical_20261024_routed_resources": {
+    "lut": 16897,
+    "ff": 14875,
+    "apm": 45,
+    "drm_sites": 104
+  },
+  "historical_20261024_resource_percent": {
+    "synthesis_lut": 34.03,
+    "synthesis_ff": 23.38,
+    "apm": 53.57,
+    "drm_equivalent": 76.87,
+    "physical_drm": 77.61,
+    "routed_lut": 39.48,
+    "routed_ff": 23.17
+  },
+  "historical_20261024_timing_minimum_slack_ns": {
+    "slow_setup": 0.721,
+    "slow_hold": 0.114,
+    "slow_recovery": 3.118,
+    "slow_removal": 0.649,
+    "slow_mpw": 0.397,
+    "fast_setup": 0.121,
+    "fast_hold": 0.053,
+    "fast_recovery": 4.235,
+    "fast_removal": 0.392,
+    "fast_mpw": 0.568
+  },
+  "historical_20261024_fifo_max_skew_ns": 1.491,
+  "actual_local_recompile_20261025": {
+    "archive": "verification/local_build_20261025",
+    "tool": "PDS2022.2-SP3",
+    "process_exit_code": 0,
+    "elapsed_seconds": 703.6673631000001,
+    "source_file_count": 152,
+    "source_changed": [],
+    "evidence_hash_changed": [],
+    "synthesis_resources": {
+      "lut": 13280,
+      "ff": 14138,
+      "apm": 45.0,
+      "drm_equivalent": 102.5,
+      "distributed_ram_lut": 588,
+      "latches": 0
+    },
+    "routed_resources": {
+      "lut": 13321.0,
+      "ff": 14003.0,
+      "apm": 45.0,
+      "drm_equivalent": 102.5
+    },
+    "timing_passed": false,
+    "full_build_passed": false,
+    "timing_minima_ns": {
+      "slow_setup": -0.975,
+      "slow_hold": 0.186,
+      "slow_recovery": 3.834,
+      "slow_removal": 0.305,
+      "slow_mpw": 0.397,
+      "fast_setup": 0.121,
+      "fast_hold": 0.105,
+      "fast_recovery": 4.626,
+      "fast_removal": 0.28,
+      "fast_mpw": 0.568
+    },
+    "timing_violations": [
+      {
+        "check": "slow_setup",
+        "row": [
+          "ddrphy_clkin",
+          "ddrphy_clkin",
+          "-0.975",
+          "-10.571",
+          "16",
+          "38565"
+        ]
+      }
+    ],
+    "structural_checks": {
+      "no_clock": 0,
+      "virtual_clock": 1,
+      "unexpandable_clocks": 0,
+      "no_input_delay": 34,
+      "no_output_delay": 86,
+      "partial_input_delay": 0,
+      "partial_output_delay": 0,
+      "io_min_max_delay_consistency": 0,
+      "input_delay_assigned_to_clock": 0,
+      "loops": 0,
+      "latch_loops": 0,
+      "latchs": 0
+    },
+    "fifo_cdc_passed": true,
+    "fifo_max_skew_ns": 1.724,
+    "generated_bitstreams": [
+      {
+        "path": "generate_bitstream/hdmi_ddr3_top.sbit",
+        "bytes": 2101696,
+        "sha256": "5c0130c1887d509ace53a9deb6646d7b21008f107ba477d3c17b1b3275fdf31d"
+      }
+    ],
+    "board_tested": false,
+    "recommended_for_board_programming": false,
+    "rtl_simulations": {
+      "initial_runner": {
+        "completed": false,
+        "reason": "Icarus tiled test exceeded original 90 second wall timeout",
+        "passed_cases": [
+          "adaptive_preprocess_stream",
+          "attitude_cdc",
+          "fram_buf_pose",
+          "imu_affine",
+          "imu_protocol",
+          "pose_async_fifo",
+          "pose_ddr_arbiter",
+          "pose_focal_product",
+          "pose_frame_bank_allocator",
+          "pose_inverse_project_q14",
+          "pose_inverse_project_reciprocal_lut",
+          "pose_reciprocal_lut_error",
+          "pose_renderer_0",
+          "pose_renderer_1",
+          "pose_renderer_line4",
+          "pose_tile_read_scheduler"
+        ]
+      },
+      "tiled_320x180_rerun": {
+        "passed": true,
+        "same_compiled_testbench": true,
+        "five_poses": true,
+        "not_1080p_throughput": true
+      },
+      "supplemental": [
+        {
+          "label": "input_frame_alignment",
+          "parameter_overrides": null,
+          "compile_exit": 0,
+          "passed": true,
+          "exit_code": 0,
+          "elapsed_seconds": 0.21348400000033507
+        },
+        {
+          "label": "rgb888_raster",
+          "parameter_overrides": null,
+          "compile_exit": 0,
+          "passed": true,
+          "exit_code": 0,
+          "elapsed_seconds": 1.1219080999999278
+        },
+        {
+          "label": "pose_capture_throughput",
+          "parameter_overrides": null,
+          "compile_exit": 0,
+          "passed": true,
+          "exit_code": 0,
+          "elapsed_seconds": 17.157610600000226
+        },
+        {
+          "label": "pose_renderer_tiled",
+          "parameter_overrides": {
+            "WIDTH": 144,
+            "HEIGHT": 40
+          },
+          "compile_exit": 0,
+          "passed": true,
+          "exit_code": 0,
+          "elapsed_seconds": 50.639563299999736
+        }
+      ],
+      "full_1080p_rerun": false,
+      "post_route_simulation": false
+    }
+  },
+  "historical_full1080p_20261022": {
+    "parameters": {
+      "full": true,
+      "frames": 28,
+      "latency": 32,
+      "shared_payload": true,
+      "refresh_cycles": 35,
+      "refresh_interval": 780,
+      "preprocess": true,
+      "runtime": true
+    },
+    "fps": 30.00003,
+    "max_render_clocks": 3314614,
+    "render_ms": 33.14614,
+    "displayed_pixels_checked": 51840000,
+    "changed_inputs_in_final_version": [
+      "tests/run_pose_tiled_integration.py",
+      "tests/tb_fram_buf_pose_tiled.sv",
+      "src/video/pose/fram_buf_pose.v",
+      "src/video/pose/pose_renderer_tiled.v",
+      "src/video/pose/pose_async_fifo.v"
+    ],
+    "not_a_final_version_rerun": true
+  },
+  "derived_budget": {
+    "frame30_ms": 33.333333333333336,
+    "historical_render_margin_ms": 0.1871933333333331,
+    "logical_buffers_KiB": 199,
+    "rgb565_frame_bytes": 4147200,
+    "four_frame_payload_MiB": 15.8203125,
+    "frame_address_window_MiB": 64
+  },
+  "board_fps": null,
+  "end_to_end_hardware_latency_ms": null,
+  "report_local_links_checked": 12,
+  "broken_report_links": [],
+  "evidence_integrity_passed": true,
+  "evidence_pass_does_not_mean_timing_pass": true
+}

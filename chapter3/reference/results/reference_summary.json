@@ -1,0 +1,97 @@
+{
+  "execution": "Independent Python numerical cross-check; MATLAB not executed",
+  "undistort": {
+    "ValidRatio": 1.0,
+    "Q5MaxError": 5.0,
+    "Q5RMSE": 0.6765589137204298
+  },
+  "pose": [
+    {
+      "YawDeg": 0,
+      "PitchDeg": 0,
+      "CommonValidRatio": 1.0,
+      "ImageRMSE": 0.0,
+      "CoordinateRoundTripRMSE": 1.1335328148862669e-13,
+      "Q2048AngleMapRMSE": 0.0
+    },
+    {
+      "YawDeg": 10,
+      "PitchDeg": 0,
+      "CommonValidRatio": 0.8130545910493827,
+      "ImageRMSE": 8.812367649001368,
+      "CoordinateRoundTripRMSE": 2.0403789912532128e-13,
+      "Q2048AngleMapRMSE": 0.2355823561711289
+    },
+    {
+      "YawDeg": 0,
+      "PitchDeg": -10,
+      "CommonValidRatio": 0.8088941936728395,
+      "ImageRMSE": 8.112815620703323,
+      "CoordinateRoundTripRMSE": 1.8922963711228076e-13,
+      "Q2048AngleMapRMSE": 0.18851937832187868
+    },
+    {
+      "YawDeg": 10,
+      "PitchDeg": -8,
+      "CommonValidRatio": 0.7382759452160493,
+      "ImageRMSE": 8.87826259771519,
+      "CoordinateRoundTripRMSE": 1.615270283292865e-13,
+      "Q2048AngleMapRMSE": 0.23922314389798335
+    },
+    {
+      "YawDeg": -15,
+      "PitchDeg": 15,
+      "CommonValidRatio": 0.6269328703703704,
+      "ImageRMSE": 9.008470833252359,
+      "CoordinateRoundTripRMSE": 2.0469286877421434e-13,
+      "Q2048AngleMapRMSE": 0.10408367626537676
+    },
+    {
+      "YawDeg": 15,
+      "PitchDeg": -15,
+      "CommonValidRatio": 0.6116145833333333,
+      "ImageRMSE": 9.334338099413078,
+      "CoordinateRoundTripRMSE": 2.2704595191055963e-13,
+      "Q2048AngleMapRMSE": 0.10644140931923611
+    }
+  ],
+  "gamma_final": [
+    {
+      "Frame": 10,
+      "Scene": "normal",
+      "RawMean": 113.06162808641976,
+      "EnhancedMean": 113.06162808641976,
+      "Classified": 3,
+      "Target": 3,
+      "Active": 3
+    },
+    {
+      "Frame": 20,
+      "Scene": "dark",
+      "RawMean": 18.67391975308642,
+      "EnhancedMean": 64.14074074074074,
+      "Classified": 0,
+      "Target": 0,
+      "Active": 0
+    },
+    {
+      "Frame": 30,
+      "Scene": "bright",
+      "RawMean": 230.51440586419753,
+      "EnhancedMean": 211.29691358024692,
+      "Classified": 6,
+      "Target": 6,
+      "Active": 6
+    },
+    {
+      "Frame": 40,
+      "Scene": "mixed",
+      "RawMean": 124.63405092592592,
+      "EnhancedMean": 132.82731481481483,
+      "Classified": 2,
+      "Target": 2,
+      "Active": 2
+    }
+  ],
+  "checks": "PASS: independent SciPy sampling, rotation inverse, all 2048 RTL LUT entries, gamma thresholds and temporal slew"
+}
