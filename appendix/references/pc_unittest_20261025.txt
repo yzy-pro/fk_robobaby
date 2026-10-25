@@ -1,0 +1,64 @@
+test_actual_urdf_meshes_and_motion (test_core.CoreTests.test_actual_urdf_meshes_and_motion) ... ok
+test_buffer_byte_limit_time_limit_and_clear (test_core.CoreTests.test_buffer_byte_limit_time_limit_and_clear) ... ok
+test_delay_warmup_and_selection (test_core.CoreTests.test_delay_warmup_and_selection) ... ok
+test_settings_atomic_round_trip (test_core.CoreTests.test_settings_atomic_round_trip) ... ok
+test_settings_schema_rejects_invalid_values (test_core.CoreTests.test_settings_schema_rejects_invalid_values) ... ok
+test_urdf_origin_axis_composition (test_core.CoreTests.test_urdf_origin_axis_composition) ... ok
+test_xrandr_physical_mode_with_scaled_desktop (test_core.CoreTests.test_xrandr_physical_mode_with_scaled_desktop) ... ok
+test_board_detection_geometry_and_blur_measurement (test_evaluation.AlgorithmTests.test_board_detection_geometry_and_blur_measurement) ... ok
+test_curved_grid_exceeds_threshold_and_blank_has_no_board (test_evaluation.AlgorithmTests.test_curved_grid_exceeds_threshold_and_blank_has_no_board) ... ok
+test_reprojection_of_known_pinhole_pose (test_evaluation.AlgorithmTests.test_reprojection_of_known_pinhole_pose) ... ok
+test_sfr_matches_analytic_gaussian_and_reports_blur (test_evaluation.AlgorithmTests.test_sfr_matches_analytic_gaussian_and_reports_blur) ... ok
+test_sfr_rejects_axis_aligned_clipped_and_low_contrast (test_evaluation.AlgorithmTests.test_sfr_rejects_axis_aligned_clipped_and_low_contrast) ... ok
+test_malformed_yaml_is_a_validation_error (test_evaluation.CalibrationTests.test_malformed_yaml_is_a_validation_error) ... ok
+test_matlab_transpose_origin_and_distortion_order (test_evaluation.CalibrationTests.test_matlab_transpose_origin_and_distortion_order) ... ok
+test_opencv_json_and_yaml_roundtrip (test_evaluation.CalibrationTests.test_opencv_json_and_yaml_roundtrip) ... ok
+test_rejects_invalid_models_matrices_and_sizes (test_evaluation.CalibrationTests.test_rejects_invalid_models_matrices_and_sizes) ... ok
+test_size_mismatch_never_silently_rescales_parameters (test_evaluation.CalibrationTests.test_size_mismatch_never_silently_rescales_parameters) ... ok
+test_stability_stale_input_and_no_old_report_after_loss (test_evaluation.EvaluationWorkerTests.test_stability_stale_input_and_no_old_report_after_loss) ... ok
+test_stop_during_detection_never_publishes_old_result (test_evaluation.EvaluationWorkerTests.test_stop_during_detection_never_publishes_old_result) ... ok
+test_ack_gate_ignores_telemetry_and_stale_sequences (test_protocols.ProtocolTests.test_ack_gate_ignores_telemetry_and_stale_sequences) ... ok
+test_command_sequence_wrap (test_protocols.ProtocolTests.test_command_sequence_wrap) ... ok
+test_corrupt_frames_resynchronize (test_protocols.ProtocolTests.test_corrupt_frames_resynchronize) ... ok
+test_documented_commands (test_protocols.ProtocolTests.test_documented_commands) ... ok
+test_every_split_and_embedded_sync (test_protocols.ProtocolTests.test_every_split_and_embedded_sync) ... ok
+test_gamma_values_and_zero_denominator (test_protocols.ProtocolTests.test_gamma_values_and_zero_denominator) ... ok
+test_imu_bad_checksum_tail_noise_and_payload_sync (test_protocols.ProtocolTests.test_imu_bad_checksum_tail_noise_and_payload_sync) ... ok
+test_imu_documented_signed_angles_all_splits (test_protocols.ProtocolTests.test_imu_documented_signed_angles_all_splits) ... ok
+test_imu_quantized_pi_boundary_is_accepted (test_protocols.ProtocolTests.test_imu_quantized_pi_boundary_is_accepted) ... ok
+test_noise_memory_is_bounded (test_protocols.ProtocolTests.test_noise_memory_is_bounded) ... ok
+test_random_fragmentation (test_protocols.ProtocolTests.test_random_fragmentation) ... ok
+test_status_and_invalid_flags (test_protocols.ProtocolTests.test_status_and_invalid_flags) ... ok
+test_no_response_times_out_without_replaying_set (test_serial.SerialIntegrationTests.test_no_response_times_out_without_replaying_set) ... ok
+test_telemetry_before_ack_and_pending_application (test_serial.SerialIntegrationTests.test_telemetry_before_ack_and_pending_application) ... ok
+test_capture_evaluation_uses_original_packets_without_main_previews (test_ui.HardwareVideoUiTests.test_capture_evaluation_uses_original_packets_without_main_previews) ... ok
+test_two_mjpeg_inputs_decode_off_gui_thread_and_update_live (test_ui.HardwareVideoUiTests.test_two_mjpeg_inputs_decode_off_gui_thread_and_update_live) ... ok
+test_demo_controls_delay_pose_and_gamma (test_ui.UiTests.test_demo_controls_delay_pose_and_gamma) ... ok
+test_disconnect_clears_data_and_restart_is_available (test_ui.UiTests.test_disconnect_clears_data_and_restart_is_available) ... ok
+test_main_images_and_nonmodal_tool_windows (test_ui.UiTests.test_main_images_and_nonmodal_tool_windows) ... This plugin does not support propagateSizeHints()
+This plugin does not support raise()
+This plugin does not support propagateSizeHints()
+This plugin does not support raise()
+This plugin does not support propagateSizeHints()
+This plugin does not support raise()
+This plugin does not support propagateSizeHints()
+This plugin does not support raise()
+ok
+test_page_switch_is_exclusive_and_demo_report_exports (test_ui.UiTests.test_page_switch_is_exclusive_and_demo_report_exports) ... ok
+test_settings_roundtrip_manual_device_paths (test_ui.UiTests.test_settings_roundtrip_manual_device_paths) ... ok
+test_static_input_missing_board_and_invalid_calibration_clear_results (test_ui.UiTests.test_static_input_missing_board_and_invalid_calibration_clear_results) ... ok
+test_all_split_positions_with_embedded_thumbnail_markers (test_video.JpegTests.test_all_split_positions_with_embedded_thumbnail_markers) ... ok
+test_compressed_history_accounts_for_byte_and_time_limits (test_video.JpegTests.test_compressed_history_accounts_for_byte_and_time_limits) ... ok
+test_corruption_resync_and_bounded_memory (test_video.JpegTests.test_corruption_resync_and_bounded_memory) ... ok
+test_ffmpeg_stream_copy_pipe_read_and_cleanup (test_video.JpegTests.test_ffmpeg_stream_copy_pipe_read_and_cleanup) ... ok
+test_progressive_byte_chunks_stuffing_and_restart_markers (test_video.JpegTests.test_progressive_byte_chunks_stuffing_and_restart_markers) ... ok
+test_reduced_preview_and_full_resolution (test_video.JpegTests.test_reduced_preview_and_full_resolution) ... ok
+test_disconnect_invalidates_inflight_decode (test_video.VideoWorkerTests.test_disconnect_invalidates_inflight_decode) ... ok
+test_live_delay_changes_and_hdmi_independence (test_video.VideoWorkerTests.test_live_delay_changes_and_hdmi_independence) ... ok
+test_raw_fallback_retains_delayed_small_history (test_video.VideoWorkerTests.test_raw_fallback_retains_delayed_small_history) ... ok
+test_slow_decoder_skips_old_frames_without_slowing_input (test_video.VideoWorkerTests.test_slow_decoder_skips_old_frames_without_slowing_input) ... ok
+
+----------------------------------------------------------------------
+Ran 51 tests in 41.291s
+
+OK

@@ -1,0 +1,245 @@
+\chapter{利用 IMU 获取摄像头姿态}
+\label{app:attitude-estimation}
+
+摄像头姿态由与其刚性连接的 BMI088 测量，经 STM32F4 解算后分别发送给 FPGA 和 PC。
+本附录依据 \path{../Stm32f4/} 中的采集、Mahony 解算和通信源码，
+说明从惯性数据到摄像头矫正参数的处理过程。
+当前工程提供 yaw、pitch、roll 三个姿态角，没有估计摄像头平移位置，
+因此本附录中的“位姿获取”具体实现为旋转姿态获取。
+默认 FPGA 使用 yaw/pitch，roll 仅保留接收与显示。
+
+\section{硬件接口与任务组织}
+\subsection{传感器采集链路}
+STM32 工程使用 STM32F407 系列，配置系统时钟为 168 MHz，
+基于 HAL、FreeRTOS 与 CMSIS-RTOS2 组织任务。
+BMI088 的加速度计与陀螺仪共享 SPI1，使用独立片选；
+数据就绪中断启动 SPI DMA，发送/接收完成回调释放总线及数据缓冲。
+温度由定时器触发读取，TIM10 PWM 驱动加热控制，代码目标温度为 $36\,^{\circ}\mathrm C$。
+该温度是控制设定值，不能代替实测的温度稳定度或零偏稳定度。
+
+\begin{table}[htbp]\centering\small
+\caption{STM32 IMU 接口与解算配置}\label{tab:app-imu-config}
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{3.5cm}YY}
+\toprule
+项目 & 当前代码配置 & 说明 \\
+\midrule
+传感器总线 & SPI1，DMA 读写 & 两个传感器独立片选，以信号量协调共享总线 \\
+加速度计 & $\pm3g$，800 Hz ODR & 数据转换系数为 $0.00089685$，用于换算为 $\mathrm{m/s^2}$ \\
+陀螺仪 & $\pm1000\,^{\circ}/\mathrm s$，1000 Hz ODR & 寄存器宏为 \path{GYRO_RANGE_1000_DEG_S}；灵敏度 32.768 LSB/(${}^{\circ}/\mathrm s$) \\
+解算周期 & 1 tick，tick 频率 1000 Hz & Mahony 源码固定使用 $\Delta t=0.001$ s \\
+温度控制 & 目标 $36\,^{\circ}\mathrm C$，PWM 加热 & 需上板记录升温时间和稳态波动 \\
+FPGA 姿态链路 & USART6，PG14 TX，921600 baud & 8-N-1，10 字节姿态帧，目标 50 Hz \\
+PC 姿态链路 & USB FS CDC，目标 50 Hz & 上位机使用 115200/8-N-1 线路设置；不代表 USB 物理比特率 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+量程以实际写入宏和换算系数为准：源码有一处陀螺仪量程注释写为
+$\pm500\,^{\circ}/\mathrm s$，但实际配置为
+\path{GYRO_RANGE_1000_DEG_S}，转换也采用 32.768。
+记录实验时应按后者核对，避免用错误灵敏度将角速度缩放一倍。
+
+\subsection{解算与双通道分发}
+\path{AppBmi088Task} 完成初始化和上电等待后，每 1 ms 目标周期调用
+\path{control()}、\path{temp_control()} 和 \path{callback()}，
+分别解析数据、更新温控和进行姿态解算。
+随后把 roll、pitch、yaw 三个浮点数复制到两条独立状态队列，
+供 \path{AppJetsonTask} 与 \path{AppJetsonUsbTask} 读取。
+代码中的 Jetson 命名沿用早期模块名，当前分别承担 USART 与 USB CDC 姿态发送。
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[font=\small,
+  box/.style={draw=TemplateBlue,rounded corners,align=center,minimum height=1.05cm},
+  flow/.style={-{Stealth[length=2mm]},thick}]
+\node[box,text width=1.8cm] (imu) {BMI088\\加速度/角速度};
+\node[box,text width=3.0cm,right=0.45cm of imu] (solve) {SPI DMA / STM32\\零偏扣除与 Mahony};
+\node[box,text width=1.8cm,right=0.45cm of solve] (queue) {姿态快照\\双队列};
+\node[box,text width=3.0cm,right=0.65cm of queue,yshift=0.75cm] (uart) {USART6，50 Hz\\FPGA 帧级锁存};
+\node[box,text width=3.0cm,below=0.45cm of uart] (usb) {USB CDC，50 Hz\\PC 解码与模型显示};
+\draw[flow] (imu) -- (solve);
+\draw[flow] (solve) -- (queue);
+\draw[flow] (queue.east) -- ++(0.22,0) |- (uart.west);
+\draw[flow] (queue.east) -- ++(0.22,0) |- (usb.west);
+\end{tikzpicture}
+\caption{现有固件的姿态采集、解算与双通道分发}
+\label{fig:app-imu-pipeline}
+\end{figure}
+
+两条队列深度均为 2，生产者非阻塞投递，消费者每 20 ms 取一次 FIFO 数据，
+不是每次循环都清空队列并选取最新值。
+因此，50 Hz 是通信任务的目标频率，不能认为每个发送值都来自该时刻最新的惯性采样。
+800 Hz 加速度、1000 Hz 陀螺仪与 1000 Hz 解算循环也不是同一事件，
+当前代码可能在某次循环中重用上一组已读数据。
+初始化前就已取得调度基准，而初始化包含较长等待，且任务未检查 \path{setup()} 返回状态，
+因此代码中的目标周期不构成启动后稳定 1 kHz 或传感器就绪的保证；
+后续固件应在初始化成功后重新设定调度基准，并记录采样有效性。
+正式动态测试应测量采集新鲜度和任务抖动，而非仅用任务周期推算角度延迟。
+\sourcefile{\path{../Stm32f4/Core/Hardware/bmi088/bmi088_task.cpp}；
+\path{../Stm32f4/Core/Src/freertos.c}；
+\path{../Stm32f4/Core/Hardware/jetson/jetson_task.cpp}；
+\path{../Stm32f4/Core/Hardware/jetson_usb/jetson_usb_task.cpp}}
+
+\section{惯性数据处理与 Mahony 姿态解算}
+\subsection{单位转换、零偏与温度}
+陀螺仪三轴按 x/roll、y/pitch、z/yaw 排列。
+设原始有符号输出为 $g_{\mathrm{raw},i}$，灵敏度为 $s_g=32.768$，
+固件转换为弧度每秒并扣除偏置：
+\begin{equation}
+\omega_i=\frac{g_{\mathrm{raw},i}}{s_g}\frac{\pi}{180}-b_i.
+\end{equation}
+当前构造函数中的固定偏置为
+\begin{equation}
+\boldsymbol b=
+[0.00155281043,\ 0.00148057903,\ 0.00126652408]^{\mathsf T}
+\ \mathrm{rad/s}.
+\end{equation}
+这些数值是已有代码常量，没有随附本次器件、温度和采样时长的原始校准记录，
+更换传感器后应重新测量，不能当作所有 BMI088 的通用校准值。
+建议在安装固定、温度稳定后采集静态角速度，以均值估计偏置，
+另用独立时段记录扣偏后的均值和标准差。
+
+加速度计输出按量程系数转换后用于估计重力方向。
+可通过多面静置检查轴向、符号、零偏与尺度，
+在运动中则应注意非重力加速度会影响姿态反馈。
+现有实现没有完整的六面加速度校准流程，也没有根据动态加速度自适应调整反馈权重；
+大幅平移、振动或急停下的误差需另行验证。
+
+\subsection{四元数更新与角度输出}
+Mahony 算法用陀螺仪积分提供短时姿态变化，
+以归一化加速度与估计重力方向之间的叉乘误差修正漂移。
+其处理可概括为
+\begin{align}
+\boldsymbol e&=\hat{\boldsymbol a}\times\hat{\boldsymbol g}(q),\\
+\boldsymbol\omega_c&=\boldsymbol\omega+
+K_P\boldsymbol e+K_I\int\boldsymbol e\,dt,\\
+\dot q&=\tfrac12q\otimes[0,\boldsymbol\omega_c],\qquad
+q_{n+1}=\operatorname{normalize}(q_n+\dot q\,\Delta t).
+\end{align}
+这里以单位重力向量写出原理；源码使用 half-vector 和 \path{twoKp/twoKi} 的等价写法，
+默认 \texttt{twoKp=1.0}、\texttt{twoKi=0}，固定采样频率为 1000 Hz。
+初始四元数为 $[1,0,0,0]$，每次更新后归一化，再按源码的欧拉角公式输出弧度。
+
+当前调用向磁力计通道传入三个零值，实际进入六轴 IMU 分支，
+重力可约束俯仰与横滚，但无法提供绕重力方向的绝对航向参考。
+因此，yaw 只适合作为相对旋转观测，长期漂移应测量并记录。
+默认积分反馈关闭，不能把 Mahony 结构本身描述为已经完成在线陀螺仪零偏估计。
+固定 $\Delta t$ 也要求实际任务周期与 1 ms 一致，
+调度阻塞和丢采样会引入额外误差。
+\sourcefile{\path{../Stm32f4/Core/Hardware/bmi088/bmi088.cpp}；
+\path{../Stm32f4/Core/Hardware/bmi088/MahonyAHRS.c}；
+\path{../Stm32f4/Core/Hardware/bmi088/bmi088_temperature.cpp}}
+
+\section{IMU 安装坐标与摄像头姿态}
+\subsection{刚性安装与参考零位}
+IMU 应与摄像头刚性连接，标明传感器三轴、相机光轴、图像向右和向下的方向，
+避免安装支架松动或线缆牵拉改变两者关系。
+通过绕机械轴的单轴正负转动，确认输出角度及矫正图像的方向。
+STM32 的 yaw 绕传感器 z 轴，不能仅因字段名相同就等同于图像算法的水平偏转角；
+安装后可能需要轴置换、符号转换和固定旋转补偿。
+
+设 $R_{AB}$ 将 B 坐标表达转换到 A 坐标表达，S 为 IMU、C 为相机，W 为参考坐标系。
+若已确认解算四元数对应的 $R_{WS}(t)$ 方向，且已标定固定安装旋转 $R_{SC}$，则
+\begin{equation}
+R_{WC}(t)=R_{WS}(t)R_{SC}.
+\end{equation}
+以零位相机 $C_0$ 作为理想输出视角，输出视线到当前源相机 $C_t$ 的旋转应为
+\begin{equation}
+R_{C_tC_0}=R_{WC}(t)^{\mathsf T}R_{WC}(0)
+=R_{SC}^{\mathsf T}R_{WS}(t)^{\mathsf T}R_{WS}(0)R_{SC}.
+\label{eq:app-imu-camera-rotation}
+\end{equation}
+该式说明安装旋转、参考零位及映射方向的关系。
+当前固件仅发送三个欧拉角，没有显式应用这条完整的相机外参链，
+因此式~\eqref{eq:app-imu-camera-rotation} 是联调与后续完善的坐标依据，
+不能描述为当前已完成的外参标定功能。
+
+\subsection{与默认 FPGA 路径对接}
+当前 FPGA 默认按 yaw/pitch 每轴约 $\pm15^\circ$ 工作，roll 不参与逆映射。
+联调应使用该范围内的单轴与组合角度，逐项记录
+“机械转动方向、STM32 读数、发送字段、FPGA 矫正方向”，
+并核对第三章的旋转顺序。
+超过范围时应检查限幅和无效视场处理，不能用通信协议可编码约 $\pm\pi$ 的能力
+推断系统支持同样大的有效矫正视场。
+
+上位机“当前姿态设为模型零点”只改变 PC 模型显示，
+不会修改 STM32 偏置、FPGA 参考姿态或发送数据。
+更严格的姿态零位应通过旋转矩阵或四元数建立相对关系；
+简单逐项减欧拉角只在受限小角度、已统一顺序的条件下近似适用。
+\fillin{补充 IMU 与相机安装照片、三轴示意、安装旋转或轴映射表及参考零位定义。}
+
+\section{姿态帧、传输通道与异常处理}
+\subsection{十字节二进制帧}
+USART6 与 USB CDC 使用相同的载荷格式：
+\begin{center}\small
+\texttt{55 AA | Yaw\_L Yaw\_H | Pit\_L Pit\_H | Rol\_L Rol\_H | SUM | 0D}
+\end{center}
+每个角度先归一化到 $[-\pi,\pi)$，乘以 2048 后按最接近整数取整，
+半整数向远离零的方向处理，编码为小端有符号 16 bit 补码。
+接收端换算为
+\begin{equation}
+\theta_{\mathrm{rad}}=\frac{\operatorname{int16}(\mathrm{raw})}{2048},
+\qquad
+\theta_{\mathrm{deg}}=\theta_{\mathrm{rad}}\frac{180}{\pi}.
+\end{equation}
+量化步长为 $1/2048$ rad，约 $0.027976^\circ$，
+这只是通信分辨率，不是传感器测量精度。
+SUM 为偏移 2--7 六个无符号字节的累加和低 8 位，
+不包含帧头与帧尾；它不是 XOR 或 CRC。
+
+例如 yaw=$90^\circ$、pitch=$-30^\circ$、roll=$15^\circ$ 的编解码样例为
+\begin{center}\small\texttt{55 AA 91 0C D0 FB 18 02 82 0D}。
+\end{center}
+此例用于核对字节序、符号与校验，不代表默认 FPGA 的有效矫正范围。
+三个解码值受量化影响，约为 $90.0003^\circ$、$-29.9908^\circ$、$14.9954^\circ$。
+
+\subsection{两条发送链路的区别}
+USART6 的 921600 baud 是真实异步串口速率，10 字节、8-N-1 的一帧在线路上约需
+$100/921600=108.5\ \mu\mathrm s$，远小于 20 ms 目标发送周期。
+USB CDC 的 115200 是主机线路编码设置，不能据此计算 USB 的实际传输时间。
+USB 路径检查设备已配置且上一笔发送完成后才重用发送缓冲，忙时跳过本次机会；
+两条链路均未提供应用层逐帧确认与补发。
+
+接收端必须按连续字节流处理半包、粘包和噪声。
+找到 \texttt{55 AA} 后等满 10 字节再检查帧尾与校验，
+错误时仅向前移动一个字节重新搜索，不能用文本行或 USB 包边界分帧。
+角度跨越 $\pm\pi$ 时会出现数值回绕，计算连续轨迹和角速度前需展开角度。
+
+当前帧不含采样时间戳、序号、传感器就绪位或安装标识。
+首次姿态数据到达前可能发送零值，队列无更新时可能继续发送旧姿态；
+所以“收到合法帧”不等于“传感器已就绪且数据新鲜”。
+PC 连续 0.5 s 无合法帧时提示超时，但这仍是通信层检查。
+后续若需要严格动态对齐，应扩展采样序号、硬件时间戳和有效状态，并同步升级 FPGA 与 PC 解码。
+\sourcefile{\path{../Stm32f4/Core/Hardware/jetson/jetson.cpp}；
+\path{../Stm32f4/Core/Hardware/jetson_usb/jetson_usb.cpp}；
+\path{../Stm32f4/Core/Hardware/jetson_usb/usb_receive_manual.md}；
+\path{../PC/fpga_host/core/protocols.py}}
+
+\section{联调步骤与测量记录}
+先固定相机与 IMU，等待温度和姿态趋于稳定，检查静置时三轴数据，
+再分别执行正负 yaw/pitch 及组合转动。
+用机械角度参考或独立姿态参考比较读数，
+并同时抓取 USART 与 USB 帧，核对两条链路的编码一致性及数据更新时间。
+开启 FPGA 姿态矫正后检查图卡方向、帧内稳定性和失联行为，
+不将 PC 模型运动正确作为相机矫正方向正确的唯一依据。
+
+\begin{table}[htbp]\centering\small
+\caption{IMU 到摄像头姿态的实测记录模板}\label{tab:app-imu-measurements}
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{3.1cm}YY}
+\toprule
+项目 & 测量方法与记录内容 & 当前记录 \\
+\midrule
+静态零偏与噪声 & 温度稳定后记录三轴均值、标准差和采样时长 & \fillin{待测} \\
+角度准确度 & 已知正负单轴角度与组合姿态；报告偏差及重复性 & \fillin{待测} \\
+航向漂移 & 静置连续记录，展开 yaw 后统计指定时长内漂移 & \fillin{待测} \\
+温控效果 & 目标温度、升温时间、稳态波动与环境温度 & \fillin{待测} \\
+采样与通信节拍 & 实际有效帧率、接收间隔分布、丢包与重复值 & \fillin{待测} \\
+姿态到画面响应 & 阶跃转动、串口到达、FPGA 帧锁存及显示事件 & \fillin{待测} \\
+异常恢复 & 断开、重连、错误校验、启动全零及长期无更新 & \fillin{待测} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+第五章已验证 FPGA 姿态 UART 的符号、小端、校验拒收及跨域快照，
+附录~\ref{app:pc-host}~给出上位机姿态解析与软件检查。
+这些测试覆盖协议与软件行为，表~\ref{tab:app-imu-measurements} 的实物精度和动态响应
+仍须按同一固件、安装和温度条件实际填写。
