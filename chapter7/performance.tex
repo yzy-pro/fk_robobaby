@@ -1,176 +1,382 @@
-\chapter{图像质量分析}
+\chapter{矫正效果评估}
 \label{chap:performance}
-\section{扫描帧率与新结果帧率}
-有效像素总数为 $N=1920\times1080=2,073,600$。
-输入/显示扫描的总时序为 $2200\times1125$，因此
-\begin{equation}
-f_{\rm scan}=\frac{148.5\times10^6}{2200\times1125}=60\ \text{Hz}.
-\end{equation}
-60 Hz 的有效输入像素速率为 124.416 Mpixel/s；30 个新结果帧/秒对应
-62.208 Mpixel/s 的平均输出像素处理需求。100 MHz 渲染域的每帧预算为
-\begin{equation}
-C_{30}=\frac{100\times10^6}{30}=3,333,333.33\ \text{cycles},\qquad
-T_{30}=33.33333\ \text{ms}.
-\end{equation}
+\newcommand{\qualitypending}{\textcolor{TemplateBlue}{待测}}
 
-当前归档最慢观测渲染为 3,314,614 拍，即 33.14614 ms，距预算约
-18,719 拍、0.18719 ms，时间余量约 0.562\%。
-该帧平均约消耗 1.5985 个渲染时钟/输出像素，包含投影、源读取、采样、写回和等待。
-单条像素流水线可以每拍启动，不代表整个系统无等待地每拍完成一个新结果像素。
+本章采用标准斜边与网格图卡，评价矫正后的清晰度、几何直线度及边缘完整性，
+对应赛题关于 MTF50 或 SFR、低直线度误差和无明显拉伸、断裂的要求。
+目前尚无本章所需的实测图像与测量结果，以下内容为测试方案和结果记录模板。
+所有“待测”均表示尚未测量，不能解释为零误差或已通过；
+最终应以真实相机图像、实际 FPGA 输出和可复核的分析结果填写。
+实时帧率、处理延迟与资源效率见第~\ref{chap:verification}~章。
 
-当前仿真稳态发布间隔为 3,333,330 拍，折算为 30.000030 fps。
-这来自仿真时序离散，不应解释为板上精确高于 30 fps 的收益。
-余量较小，需在真实 DDR 刷新、仲裁和输入场景下复测；当前不能推导全部角度与全部
-存储调度的最坏性能保证。
+\section{评价目标与测试原则}
+\subsection{评价对象及指标}
+矫正效果从三个方面评价：
+\begin{enumerate}
+\item 清晰度：从斜边图卡提取空间频率响应 SFR，以响应降至低频归一化值
+50\% 时的频率 MTF50 作为主要数值，同时保留完整曲线和中心、边缘差异。
+\item 直线度：从网格图卡提取长直线，统计矫正前后相对于最佳拟合直线的
+RMS、最大和 P95 正交距离，重点检查画面外围的残余弯曲。
+\item 边缘完整性：检查有效区域内图形的局部尺度、连通性和跨块连续性，
+记录异常拉伸、断线、错位、锯齿及其位置，辅以局部放大图。
+\end{enumerate}
 
-\begin{table}[htbp]\centering\small
-\caption{帧率与延迟测量结果模板}
-\begin{tabularx}{\textwidth}{p{3.2cm}YYY}
+赛题未给出统一的 MTF50、直线度或拉伸误差数值门限，
+本章不将自行设定的数值写成官方要求。
+测试前应根据图卡、采集分辨率、有效视场和测量不确定度，确定内部验收门限，
+填入表~\ref{tab:quality-acceptance} 并固定版本，避免看到结果后再调整判据。
+“直线度误差极低”需要同时给出像素单位残差和相对于测试线长度的比例，
+“边缘无明显异常”则需要有明确观察倍率、有效区域和辅助量化记录。
+
+\subsection{同源比较与控制变量}
+主测试固定曝光、增益、焦距、对焦、相机位置、图卡距离、照明和标定参数。
+优先保存同一源帧的输入图像与 FPGA 输出；若只能分别采集，
+应使用静止图卡和固定姿态，并记录配对方式及可能的采集差异。
+输出使用原生 $1920\times1080$ 图像，保存无损文件，
+关闭采集软件中的缩放、锐化、降噪和有损压缩。
+显示器截图、拍屏图和报告排版后的缩略图不作为主要定量分析输入。
+
+默认实时路径采用 RGB565 存储及最近邻采样。
+为分离颜色量化与几何重采样的影响，可另保存按相同规则量化、再展开的输入对照，
+并建立同标定、同姿态、同输出视场的独立浮点参考。
+几何主测试关闭自适应 Gamma；增强功能开启的测试单独分组，
+避免将对比度变化或锐化造成的响应变化解释为几何矫正带来的清晰度提升。
+\sourcefile{\path{problem.md} 中“矫正效果评估”要求；
+\path{../Pgl50h/src/video/pose/pose_renderer_tiled.v}；
+\path{../Pgl50h/src/video/format/rgb888_to_rgb565.v}}
+
+\section{图卡、采集环境与测试分组}
+\subsection{标准测试图卡与布置}
+清晰度测试采用斜边图卡或符合相应测量规范的倾斜黑色方块，
+在近水平、近垂直方向各提供一条略带倾角的高对比边缘，
+建议边缘相对像素行或列偏转约 $5^\circ$，以取得足够的亚像素采样相位。
+该建议用于布置测试，不代表已经满足某一标准的全部条件；
+正式测量时应注明所参照的 ISO 12233 等标准版本、图卡规格与分析工具。
+边缘应清晰、无反光和明显印刷毛刺，亮暗两侧均避免饱和。
+
+几何测试采用已知线宽和间距的平面网格图卡，覆盖画面中心、四边和四角。
+图卡应固定在平整基底上，记录制造精度与平整度，
+以免将打印误差、纸张弯曲或安装倾斜计入算法残差。
+倾斜方块同时用于观察边缘连续性，但清晰度所用的轻微边缘倾角，
+与系统 yaw/pitch 姿态角是不同条件，应分别记录。
+
+\begin{table}[htbp]
+\centering\small
+\caption{图卡及采集条件记录模板}\label{tab:quality-setup}
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{3.5cm}Y}
 \toprule
-指标 & 当前归档口径 & 实板结果 & 测量方法/证据 \\
+记录项目 & 实际配置 \\
 \midrule
-输出扫描率 & 60 Hz 时序 & \fillin{Hz} & \fillin{采集设备/波形} \\
-不同源帧更新率 & 模型仿真 30.000030 fps & \fillin{fps} & \fillin{计数时长、帧号} \\
-最慢渲染时间 & 模型仿真 33.14614 ms & \fillin{ms} & \fillin{起止信号} \\
-端到端延迟 & 未实测 & \fillin{min/mean/P95/max} & \fillin{事件及设备延迟} \\
-重复帧/跳帧情况 & 与 60 Hz 输入和 30 fps 更新相关 & \fillin{数量/比例} & \fillin{帧身份日志} \\
+相机、镜头与采集设备 & \fillin{型号、序列号、采集格式及接口设置} \\
+图卡与测量规范 & \fillin{斜边/网格型号、尺寸、精度、标准版本} \\
+距离、焦距及对焦 & \fillin{距离、焦距、光圈、对焦位置及固定方式} \\
+曝光、增益与照明 & \fillin{曝光时间、增益、照度、均匀性及是否锁定} \\
+标定与安装关系 & \fillin{内参/畸变参数文件、标定版本、IMU 安装与零点} \\
+FPGA 版本与处理配置 & \fillin{源码版本、位流哈希、采样模式及功能掩码} \\
+图像与有效区域 & \fillin{分辨率、位深、色彩/亮度范围、裁剪与有效掩码} \\
+分析环境与重复采样 & \fillin{脚本/软件版本、每组帧数、重复次数及剔除规则} \\
 \bottomrule
 \end{tabularx}
 \end{table}
 
-\section{端到端延迟组成}
-当前采用完整源帧采集后渲染，再在显示帧边界发布结果。对指定输入/输出事件，
-延迟可分解为
-\begin{equation}
-T_{\rm e2e}=T_{\rm acquire}+T_{\rm queue}+T_{\rm render}
-+T_{\rm publish}+T_{\rm scan}+T_{\rm interface}.
-\end{equation}
-各项分别对应采集等待、帧槽/任务等待、渲染、帧边界发布等待、目标像素扫描等待和接口开销。
-它们受事件定义及源帧接受策略影响，应在同一测量口径下记录；
-33.14614 ms 仅为已有模型中的渲染耗时，不能替代上述总和。
-\figplaceholder{端到端延迟分解与测量}{标注同一输入事件的采集、开始渲染、末写完成、结果发布和输出像素时刻，并注明测量设备延迟。}
+\subsection{模式与姿态测试矩阵}
+表~\ref{tab:quality-modes} 的模式用于区分各项处理的影响。
+主结果应同时注明三开关掩码、姿态和 Gamma 状态，不能仅写“开启矫正”。
 
-\section{DDR 数据量与带宽预算}
-DDR 用户接口为 256 bit、100 MHz，理想载荷上限为
-\begin{equation}
-B_{\rm peak}=32\times100\times10^6=3.2\ \text{GB/s}.
-\end{equation}
-该值不是持续可用带宽；命令、行切换、刷新、仲裁和回压均降低实际效率。
-以十进制 MB/s 统计，单帧 RGB565 载荷 $S_f=4,147,200$ bytes，预算为
-\begin{table}[htbp]\centering\small
-\caption{默认路径的数据带宽预算}
-\begin{tabularx}{\textwidth}{p{3.1cm}Yp{3.7cm}}
+\begin{table}[htbp]
+\centering\small
+\caption{矫正效果的建议测试分组}\label{tab:quality-modes}
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{1cm}>{\raggedright\arraybackslash}p{4cm}Y}
 \toprule
-数据流 & 统计假设 & 有效载荷带宽 \\
+编号 & 处理条件 & 评价目的 \\
 \midrule
-输入采集写 & 按全部 60 帧/秒接受的预算 & 248.832 MB/s \\
-显示读取 & 每秒读取 60 个完整显示帧 & 248.832 MB/s \\
-结果写回 & 每秒写回 30 个完整结果帧 & 124.416 MB/s \\
-渲染源读取 & 每帧实际读 $R$ 个 256 bit beat & $0.000960R$ MB/s \\
-合计 & 三项固定预算加姿态相关源读取 & $622.080+0.000960R$ MB/s \\
+A & 原始输入与同格式量化对照 & 保留未经几何处理的成像基准，识别 RGB565 量化影响。\\
+B & 镜头矫正开启，姿态/Gamma 关闭 & 测量镜头去畸变后的直线度与清晰度变化。\\
+C & 镜头、姿态矫正开启，Gamma 关闭 & 作为联合矫正主测试，评价不同姿态下的几何和边缘质量。\\
+D & 镜头、姿态及自适应 Gamma 开启 & 补充正常、暗光、强光场景，单独评价增强后的观感和响应。\\
 \bottomrule
 \end{tabularx}
 \end{table}
-源矩形可能在相邻块重复读取，$R$ 随姿态、有效区域和块尺寸变化。
-\fillin{当前 128×32 配置下各姿态的读命令数、beat 数和实测持续带宽}。
-输入帧是否全部接受取决于源槽调度，因此本表采集写项为预算假设。
-历史 $128\times64$ 的源读取计数不能直接填入当前配置。
 
-\section{资源占用与最终时序}
-表~\ref{tab:resources} 以当前位流身份记录及最终实现证据为依据，
-区分综合等效计数和最终物理占用。FF 的综合总量与最终 CLM FF（不含 I/O）
-是不同口径，应在表内明确。
+静态姿态建议覆盖零姿态、yaw/pitch 各自正负边界、双轴边界组合及代表性中间角度，
+边界范围以实际采用配置为准，默认约为各轴 $\pm15^\circ$。
+机械角度、IMU 读数与渲染器实际锁存角度应同时记录。
+每个状态建议保存不少于 10 个完整输出帧，统计逐帧结果与重复性；
+这些数量是待执行方案，尚不表示已完成覆盖。
+另设缓慢连续转动和功能切换用例，检查运动中是否出现局部撕裂、跳线或边缘断续，
+其结果与静止图卡测量分开记录。
 
-\begin{table}[htbp]\centering\small
-\caption{2026-10-22 基线资源与时序结果}\label{tab:resources}
-\begin{tabularx}{\textwidth}{p{5.4cm}Y}
-\toprule
-项目 & 归档结果及口径 \\
-\midrule
-综合 LUT / FF & 14,571 / 15,006 \\
-综合 APM & 45；器件容量 84 \\
-综合等效 DRM18K & 103 \\
-最终 LUT（含常量和旁路） & 16,878/42,800，约 39.43\% \\
-最终 CLM FF（不含 I/O） & 14,871 \\
-最终 DRM 物理位置 & 104/134，约 77.61\% \\
-锁存器 & 0 \\
-最终快/慢角时序 & All Constraints Met \\
-慢角 100 MHz 渲染域 setup 余量 & +0.873 ns \\
-全部域、双角最小 setup / hold 余量 & +0.121 / +0.053 ns \\
-FIFO Gray 最大偏斜 / 约束 & 1.470 / 6.734 ns \\
-\bottomrule
-\end{tabularx}
-\end{table}
-APM 为工具报告中的算术资源计数，DRM 为片内存储资源位置计数。
-若使用“DSP/BRAM 利用率”等通用表述，应说明与 PDS 资源名称的对应关系。
-\sourcefile{\path{../Pgl50h/bitstream/pc_control_20261022_identity.json}}
+\subsection{中心、边缘与角部 ROI}
+将有效图像划分为中心、上/下/左/右边缘和四角共九个位置，
+每处选择合适的斜边 ROI；网格则保留跨越较大范围的完整长线。
+ROI 编号、坐标、大小、边缘方向和对应物理图卡位置应固定保存。
+矫正前后同一物体可能位于不同像素位置，应按图卡特征或独立几何映射匹配，
+不能用相同像素坐标框代替同源区域匹配。
 
-\section{版本对比与优化效果}
-\begin{table}[htbp]\centering\small
-\caption{历史基线与当前基线对比（均为归档证据）}
-\begin{tabularx}{\textwidth}{p{4.1cm}YY}
-\toprule
-项目 & 2026-10-10 历史候选 & 2026-10-22 当前候选 \\
-\midrule
-输出块 / 每帧块数 & $128\times64$ / 255 & $128\times32$ / 510 \\
-CP2102 三开关及遥测 & 不包含当前协议 & 已集成 \\
-写突发存储 & 历史实现 & 客户端分布式 RAM、共享读取 \\
-最终 LUT & 19,352/42,800 & 16,878/42,800 \\
-最终 DRM 位置 & 122/134 & 104/134 \\
-最慢观测渲染 & 定向模型测试 32.45705 ms & 当前系统模型 33.14614 ms \\
-慢角渲染域 setup 余量 & +0.462 ns & +0.873 ns \\
-板测状态 & 未完成 & 未完成 \\
-\bottomrule
-\end{tabularx}
-\end{table}
-两版本同时改变块尺寸、控制和写数据结构，压力覆盖也不完全相同；
-这张表说明各自配置的整体取舍，不能视为单因素消融实验。
-\fillin{相同输入、相同配置和约束下的单因素优化对比}。
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[x=1cm,y=1cm,font=\small]
+\draw[thick,TemplateBlue] (0,0) rectangle (10.8,5.2);
+\foreach \x/\y/\name in {1.3/4.3/TL,5.4/4.3/T,9.5/4.3/TR,
+  1.3/2.6/L,5.4/2.6/C,9.5/2.6/R,1.3/0.9/BL,5.4/0.9/B,9.5/0.9/BR} {
+  \draw[TemplateBlue,fill=TemplateBlue!7] (\x-0.65,\y-0.35) rectangle (\x+0.65,\y+0.35);
+  \node at (\x,\y) {\name};
+}
+\end{tikzpicture}
+\caption{九位置 ROI 布置示意。位置框只表示选点方式，实际 ROI 需落在可测且有效的图卡边缘上。}
+\label{fig:quality-roi}
+\end{figure}
 
-\section{几何精度与图像质量评价}
-\subsection{坐标误差与直线度}
-对共同有效区域 $\Omega$，以独立浮点参考 $(u_i^*,v_i^*)$ 为基准，定义
+对于姿态矫正后移出有效视场的位置，记录为“不适用”并说明原因，
+不能填为零或在汇总时悄然删除。
+黑边和越界填充依据几何有效掩码确定，不能仅按 RGB 为零判定，
+因为图卡本身也包含黑色区域。
+\fillin{各测试组的源帧编号、姿态表、有效掩码及 ROI 清单路径}。
+
+\figplaceholder{原始图像与矫正结果对照模板}{插入同源原图、仅镜头矫正和联合矫正结果；叠加九位置 ROI、姿态、功能状态与有效区域边界。当前未采集实测图像。}
+
+\section{基于斜边的 SFR 与 MTF50 清晰度测量}
+\subsection{测量方法与计算流程}
+SFR 描述图像对不同空间频率的响应。由斜边估计得到的响应包含镜头、传感器、
+相机处理、量化与重采样的共同影响，本章将其作为采集至 FPGA 输出链路的清晰度指标。
+在未完成线性化和方法核验前，不将其解释为镜头独立的光学 MTF。
+
+对每个 ROI 按以下流程处理，并保存中间数据：
+\begin{enumerate}
+\item 检查图像无裁剪饱和、明显反光和运动模糊，将像素转为固定定义的亮度或灰度。
+若已知相机及输出响应，按实测 OECF 或适当的逆响应完成线性化；
+若未知，则记录处理假设，将结果标为当前编码条件下的 SFR，不能直接套用未经核验的 Gamma。
+\item 定位斜边并拟合其位置，将 ROI 像素投影到边缘法向，
+按亚像素距离分箱形成边缘扩展函数 ESF。记录拟合方式、ROI 大小、倾角和过采样倍数。
+\item 对 ESF 求导得到线扩展函数 LSF，按所选算法执行窗函数、
+离散微分响应修正和频域归一化，记录所用实现及参数。
+\item 计算 SFR 曲线，确定低频归一化响应首次向下穿过 0.5 的频率，
+记录 MTF50，并保留边缘过冲、振铃及非单调响应的情况。
+\item 对同组重复帧和各个位置重复计算，报告样本数、均值、标准差及最差位置。
+剔除异常图像必须使用预先规定的规则，并保留原始帧和剔除原因。
+\end{enumerate}
+
+连续形式下的关系可写为
 \begin{equation}
-e_i=\sqrt{(u_i-u_i^*)^2+(v_i-v_i^*)^2},\quad
-e_{\max}=\max_{i\in\Omega}e_i,\quad
-e_{\rm RMS}=\sqrt{\frac{1}{|\Omega|}\sum_{i\in\Omega}e_i^2}.
+\operatorname{LSF}(x)=\frac{\mathrm{d}\operatorname{ESF}(x)}{\mathrm{d}x},\qquad
+\operatorname{SFR}(f)=
+\frac{\left|\mathcal{F}\{\operatorname{LSF}(x)\}(f)\right|}
+{\left|\mathcal{F}\{\operatorname{LSF}(x)\}(0)\right|},
 \end{equation}
-另行统计有效性不一致的坐标数量，避免只在共同有效区域计算而掩盖边界差异。
-对于矫正图像中的直线特征，拟合 $ax+by+c=0$，点到直线距离为
 \begin{equation}
-d_i=\frac{|ax_i+by_i+c|}{\sqrt{a^2+b^2}}.
+f_{50}=\min\{f>0:\operatorname{SFR}(f)=0.5
+\text{，且为首次下降交点}\}.
+\label{eq:quality-mtf50}
 \end{equation}
-报告最大值、RMS 和测试区域。线条弯曲、透视斜率变化和物理标尺误差应分别解释。
+实际离散算法还需完成上述窗函数和微分修正，不能只对未经处理的阶跃图像直接做 FFT。
+主报告在输出采样的 $0<f\le0.5$ cycles/pixel 范围内给出结果；
+若该范围内没有有效 50\% 交点，应记录“范围内未交叉”或“无法可靠估计”，
+不能外推填值。ESF 过采样改善估计的相位采样，并不等于输出图像具有更高的独立空间分辨率。
 
-\subsection{清晰度、有效区域与颜色}
-MTF50/SFR 使用同一倾斜边缘、统一 ROI 与处理参数测量，报告单位
-（如 cycles/pixel 或 LW/PH），并保存完整曲线。
-几何矫正改变局部放大率，因此中心/边缘比较需说明尺度处理。
-黑色区域应分别统计模型判无效区域、边界保护区域和图像本身黑色内容；
-不能仅按 RGB 为零判定几何黑边。
+\subsection{频率单位、方向及局部尺度}
+主表统一使用 cycles/pixel。若另以图像高度归一化为 LW/PH，须说明线宽口径，
+按输出高度 $H$ 使用
+\begin{equation}
+\operatorname{MTF50}_{\rm LW/PH}=2Hf_{50},\qquad H=1080.
+\end{equation}
+H 方向的频率响应由近垂直斜边测得，V 方向由近水平斜边测得；
+这里 H/V 指频率变化方向，而非边缘延伸方向。
 
-颜色和像素误差应优先与同样经过 RGB565 量化的软件参考比较，
-再单独分析与 RGB888 原图之间的量化损失。Gamma 开关、重采样方式与姿态要固定，
-防止把增强变化算作几何矫正误差。
+几何矫正会改变局部放大率，直接比较矫正前后的 cycles/pixel 可能把尺度变化
+误判为清晰度损失或提升。应记录对应图卡区域在所测方向上的 pixel/mm，
+必要时换算为同一物方尺度的 cycles/mm 后比较，或按预先确定的方法统一局部尺度。
+用于物方换算的尺度必须对应同一方向及局部区域。
+任何额外缩放本身也会引入插值，应另存原生图测量结果并记录缩放方法。
+Gamma 开启组单独记录亮度响应和当前曲线，避免与关闭组直接混合平均。
 
-\begin{table}[htbp]\centering\small
-\caption{客观精度与画质结果模板}
-\begin{tabularx}{\textwidth}{p{3cm}YYY}
+\subsection{清晰度结果模板}
+每个姿态、模式、照明条件分别填写一份表~\ref{tab:quality-mtf}。
+表内 H/V 分别填写两个方向的 MTF50；尚未采集时保留“待测”。
+\fillin{测试组编号、源帧范围、处理模式、姿态、ROI 尺寸、样本数及线性化方式}。
+
+\begin{table}[htbp]
+\centering\small
+\caption{分区域 MTF50 结果模板（主单位：cycles/pixel）}\label{tab:quality-mtf}
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{1.4cm}YYYY}
 \toprule
-指标 & 零姿态 & 边界/中间姿态 & 方法与证据 \\
+区域 & 原图 H/V & 矫正后 H/V & 局部尺度及比较口径 & ROI/曲线证据 \\
 \midrule
-坐标最大/RMS 误差 & \fillin{pixel} & \fillin{pixel} & \fillin{独立参考/有效区域} \\
-有效性不一致数 & \fillin{数量} & \fillin{数量} & \fillin{边界规则} \\
-直线度最大/RMS & \fillin{pixel} & \fillin{pixel} & \fillin{图卡/拟合线} \\
-MTF50 或 SFR & \fillin{数值/单位} & \fillin{数值/单位} & \fillin{中心/边缘 ROI} \\
-无效区域比例 & \fillin{百分比} & \fillin{百分比} & \fillin{有效掩码} \\
-像素 PSNR/SSIM（可选） & \fillin{数值} & \fillin{数值} & \fillin{颜色、Gamma 与参考} \\
+中心 C & \qualitypending & \qualitypending & \qualitypending & \qualitypending \\
+上 T & \qualitypending & \qualitypending & \qualitypending & \qualitypending \\
+下 B & \qualitypending & \qualitypending & \qualitypending & \qualitypending \\
+左 L & \qualitypending & \qualitypending & \qualitypending & \qualitypending \\
+右 R & \qualitypending & \qualitypending & \qualitypending & \qualitypending \\
+左上 TL & \qualitypending & \qualitypending & \qualitypending & \qualitypending \\
+右上 TR & \qualitypending & \qualitypending & \qualitypending & \qualitypending \\
+左下 BL & \qualitypending & \qualitypending & \qualitypending & \qualitypending \\
+右下 BR & \qualitypending & \qualitypending & \qualitypending & \qualitypending \\
 \bottomrule
 \end{tabularx}
 \end{table}
-\figplaceholder{清晰度与直线度测量结果}{展示斜边 ROI、SFR/MTF 曲线、拟合直线及残差图；各图注明标定、姿态、采样和 Gamma 状态。}
 
-\section{功耗与长期稳定性}
-\fillin{测量点、电压、电流、静态/动态功耗、温度、环境条件、运行时长与仪表精度}。
-板级输入功耗包含外围芯片，不能直接写成 FPGA 核心功耗。
-如只有估算结果，应列工具、活动率与温度假设，并与实测区分。
+\fillin{逐帧统计文件、各 ROI 的均值/标准差、中心与外围最差值及测量不确定度}。
+分析应结合完整 SFR、ESF 和局部边缘图，说明变换尺度、最近邻锯齿及量化的影响，
+避免仅用单个 MTF50 数值断言视觉质量全面提高。
+
+\figplaceholder{ESF、LSF 与 SFR 测量结果模板}{插入实测中心和最差外围 ROI、ESF/LSF 曲线及 SFR 曲线；标出 50\% 交点、频率单位、模式与姿态。当前不绘制假定曲线。}
+
+\section{网格直线度与残余畸变}
+\subsection{直线提取及误差定义}
+对网格中的长直线进行亚像素边缘或中心线提取。
+宽黑线宜使用两侧边缘确定中心线，并固定算法和阈值，
+减少线宽及明暗阈值变化对位置估计的影响。
+每条测试线应尽量覆盖较长有效范围，在中心、四边和角部选择横、纵及必要的斜向线。
+ROI、端点排除距离、拟合点数、异常点处理和遮挡排除规则应提前确定。
+
+采用正交最小二乘等适合任意方向的拟合方式，得到
+\begin{equation}
+ax+by+c=0,\qquad a^2+b^2=1.
+\end{equation}
+对该线上 $n$ 个提取点 $(x_i,y_i)$，定义带符号残差及距离
+\begin{equation}
+r_i=ax_i+by_i+c,\qquad d_i=|r_i|,
+\end{equation}
+并计算
+\begin{equation}
+D_{\rm RMS}=\sqrt{\frac{1}{n}\sum_{i=1}^{n}r_i^2},\qquad
+D_{\max}=\max_i d_i,\qquad
+D_{95}=\operatorname{percentile}_{95}(d_i).
+\end{equation}
+若有效测试线段长度为 $L$ 个输出像素，归一化最大直线度误差为
+\begin{equation}
+\varepsilon_{\rm line}=\frac{D_{\max}}{L}\times100\%.
+\label{eq:quality-linearity}
+\end{equation}
+报告中同时给出像素单位和归一化值，并保留沿线位置对应的带符号残差曲线，
+以识别连续弯曲和局部跳变。
+
+透视投影下直线仍为直线，但平行线不一定在图像中保持平行，
+线段倾斜也不等于残余畸变。
+直线度评价不强行将所有线拟合为水平或垂直；
+图卡姿态、校正后视场和投影约定造成的整体倾斜，应与残余弯曲分开说明。
+图卡平整度、采集噪声及亚像素提取误差也应计入测量不确定度，
+不能仅依据软件输出的小数位数宣称达到对应精度。
+
+\subsection{直线度记录与判定模板}
+每条线均保留原图和矫正后结果，按相同物理线段匹配。
+当两者覆盖长度不同或局部尺度变化较大时，应说明像素残差的可比性，
+必要时增加同尺度结果；不得通过缩短线段或删除外围采样点来降低残差。
+
+\begin{table}[htbp]
+\centering\small
+\caption{直线度测量结果模板（距离单位：pixel）}\label{tab:quality-linearity}
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{2cm}YYYYY}
+\toprule
+线段位置 & 长度/点数 & 原图 RMS & 矫正 RMS & 矫正最大/P95 & 归一化最大误差 \\
+\midrule
+中央横线 & \qualitypending & \qualitypending & \qualitypending & \qualitypending & \qualitypending \\
+中央纵线 & \qualitypending & \qualitypending & \qualitypending & \qualitypending & \qualitypending \\
+上/下边缘线 & \qualitypending & \qualitypending & \qualitypending & \qualitypending & \qualitypending \\
+左/右边缘线 & \qualitypending & \qualitypending & \qualitypending & \qualitypending & \qualitypending \\
+角部代表线 & \qualitypending & \qualitypending & \qualitypending & \qualitypending & \qualitypending \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+上/下、左/右及四角实测时分别展开记录，不以一个平均值掩盖最差位置。
+\fillin{测试组、逐线完整结果、RMS/最大误差门限、最差位置及是否通过}。
+只有测量值连同不确定度符合预设判据时，才填写“达到直线度要求”。
+
+\figplaceholder{网格矫正及直线残差模板}{插入同源网格原图与矫正图、拟合线叠加和带符号残差曲线；标明最差横线/纵线、线段长度、像素尺度与误差统计。}
+
+\section{边缘拉伸、断裂与局部完整性}
+\subsection{异常拉伸与局部尺度}
+使用网格相邻交点间距、方块边长和长宽比检查局部形变，
+重点观察四角、姿态边界及有效视场外围。
+几何矫正本身会产生预期的尺度变化，所以不能将所有拉伸都认定为缺陷，
+也不能要求透视图像中所有网格间距天然相等。
+应与相同视场、姿态和采样约定的独立参考，或具有明确成像几何的物方基准比较。
+
+对匹配的局部线段，设输出长度为 $\ell$，参考长度为 $\ell^*$，定义
+\begin{equation}
+\varepsilon_{\ell}=\frac{|\ell-\ell^*|}{\ell^*}\times100\%.
+\end{equation}
+横向、纵向分别统计，必要时增加相对于参考长宽比的偏差。
+参考线段、交点定位方法、尺度标定和允许误差均应记录。
+若未建立独立几何参考，则只保留尺寸分布和观察结论，
+不将其填作已经测得的“拉伸误差”。
+
+\subsection{断裂、错位和跨块连续性}
+在有效区域内，沿同一条图卡线或方块边缘跟踪连通性，
+记录异常缺口数、最大缺口长度和跳变位置。
+检测前应确定最小缺口长度、允许的像素连接方式及噪声处理参数，
+并对算法检出的异常逐一查看原生像素，避免阈值噪声造成误报。
+设计产生的越界黑边、图卡真实间断及被遮挡区域单独标注，不能计作处理断线。
+
+默认输出块大小为 $128\times32$，应重点检查
+$x=128k$、$y=32m$ 附近穿过网格线或斜边的位置，
+以及图像末行、末列和最后一个不完整块。
+对边界两侧比较线条位置、连续性及亮度，检查是否出现整行错位、缓存旧数据或块缝。
+最近邻采样可能产生台阶与锯齿，应记录其尺度及可见程度，
+并与缺失像素造成的真正断裂区分。
+
+观察统一采用原生 1:1 显示，辅以注明倍率的整数倍最近邻放大，
+避免展示软件平滑插值掩盖块缝和缺口。
+动态检查则保存连续输出帧或视频，记录姿态、功能切换时刻和异常帧号。
+
+\begin{table}[htbp]
+\centering\small
+\caption{边缘完整性测量与观察模板}\label{tab:quality-edge}
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{3cm}YYY}
+\toprule
+检查项目 & 区域/条件 & 结果记录 & 局部图/帧号 \\
+\midrule
+局部横/纵尺度误差 & \qualitypending & \qualitypending & \qualitypending \\
+方块长宽比偏差 & \qualitypending & \qualitypending & \qualitypending \\
+异常断线数/最大缺口 & \qualitypending & \qualitypending & \qualitypending \\
+跨块边界位置跳变 & \qualitypending & \qualitypending & \qualitypending \\
+斜边台阶及可见锯齿 & \qualitypending & \qualitypending & \qualitypending \\
+末行/末列/不完整块 & \qualitypending & \qualitypending & \qualitypending \\
+姿态变化及开关切换 & \qualitypending & \qualitypending & \qualitypending \\
+有效覆盖与越界区域 & \qualitypending & \qualitypending & \qualitypending \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\figplaceholder{边缘局部放大与跨块检查模板}{插入中心、最差角部和跨块边缘的原生裁剪及整数倍放大图；标出参考位置、缺口/跳变测量和有效区域边界。}
+
+\section{综合判据与结果汇总模板}
+\subsection{门限与验收表}
+表~\ref{tab:quality-acceptance} 中的门限应在正式测量前确定。
+不同姿态与方向分别判断，主结论使用有效 ROI 中最差位置，
+重复测量时同时考虑统计波动及测量不确定度。
+若部分位置无法测量，应列出原因及有效视场覆盖，不能默认为通过。
+
+\begin{table}[htbp]
+\centering\small
+\caption{矫正效果综合验收模板}\label{tab:quality-acceptance}
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{3.2cm}YYY}
+\toprule
+指标 & 预设判据 & 最差实测结果 & 结论/证据 \\
+\midrule
+MTF50 与完整 SFR & \fillin{单位、尺度及最低要求} & \qualitypending & \qualitypending \\
+直线度 RMS & \fillin{pixel 上限} & \qualitypending & \qualitypending \\
+最大/归一化直线度 & \fillin{pixel 及比例上限} & \qualitypending & \qualitypending \\
+局部尺度/长宽比偏差 & \fillin{参考定义与误差上限} & \qualitypending & \qualitypending \\
+异常断裂与位置跳变 & \fillin{缺口定义与允许范围} & \qualitypending & \qualitypending \\
+原生倍率下边缘观感 & \fillin{区域、倍率及观察规则} & \qualitypending & \qualitypending \\
+有效视场覆盖 & \fillin{覆盖要求及排除规则} & \qualitypending & \qualitypending \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{待填结论与证据归档}
+完成测量后，按以下句式填写结论，并用具体值替换占位内容：
+
+在\fillin{相机、图卡、照明和姿态范围}条件下，采用\fillin{位流及处理配置}，
+测得中心/最差外围 MTF50 为\fillin{数值、单位、方向与尺度口径}，
+完整 SFR 的主要变化为\fillin{曲线比较及原因}。
+矫正后最差直线度 RMS、最大误差和归一化误差分别为\fillin{数值及所在位置}；
+局部尺度偏差和异常缺口为\fillin{数值、参考与测量定义}。
+在\fillin{有效区域与观察倍率}下，边缘\fillin{是否存在可见拉伸、断裂或块缝}。
+依据表~\ref{tab:quality-acceptance} 的预设判据，评价结论为\fillin{通过/未通过/证据不足及原因}。
+
+每组测试归档同源输入与输出、量化对照、独立参考、有效掩码、ROI 坐标、
+测试配置、分析脚本版本、逐帧数据表、ESF/LSF/SFR 曲线、直线残差及局部放大图。
+\fillin{结果目录、文件命名规则、图像和配置校验值、复现命令及测量日期}。
+当前这些结果尚未产生，本章暂不作“清晰度达标”“误差极低”或“无边缘缺陷”的实测结论。
