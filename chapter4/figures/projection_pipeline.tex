@@ -1,0 +1,21 @@
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}
+\node[fpblock] (norm) at (0,0) {输出像素归一化\\一基 / 零基换算、常数乘法};
+\node[fpblock] (rotate) at (5,0) {yaw / pitch 射线旋转\\前端共五级寄存};
+\node[fpblock] (divide) at (10,0) {透视归一化 $x/z,y/z$\\两个并行 42 级恢复除法器};
+\node[fpblock] (lens) at (10,-2.2) {径向与切向镜头模型\\$r^2,r^4$、系数乘积及求和};
+\node[fpblock] (focal) at (5,-2.2) {焦距乘法与主点累加\\部分积拆分、逐级寄存};
+\node[fpblock] (check) at (0,-2.2) {坐标范围 / 有效性判定\\Q14 坐标 + valid + map};
+\node[fpnote] (pose) at (5,1.35) {帧级 \texttt{pose\_load} → 钳位 / 查表插值 → \texttt{pose\_ready}};
+\draw[fparrow,dashed] (pose)--(rotate);
+\draw[fparrow] (norm)--(rotate);
+\draw[fparrow] (rotate)--(divide);
+\draw[fparrow] (divide)--(lens);
+\draw[fparrow] (lens)--(focal);
+\draw[fparrow] (focal)--(check);
+\node[fpnote,text width=14cm] at (5,-3.4) {valid 与候选有效位随各级传播；流水线每拍可接收一个坐标，无效映射仍保留输出位置。};
+\end{tikzpicture}
+\caption{姿态与镜头联合逆投影的定点硬件流水线}
+\label{fig:fpga-projector}
+\end{figure}

@@ -1,0 +1,18 @@
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[fpstate/.append style={text width=4cm}]
+\node[fpstate] (idle) at (0,0) {\texttt{IDLE}\\客户端握手，锁存合法命令};
+\node[fpstate] (address) at (5,0) {\texttt{ADDRESS}\\地址、ID、长度不变\\VALID 保持至握手};
+\node[fpstate] (payload) at (10,0) {\texttt{PAYLOAD}\\逐 beat 核验并推进计数};
+\node[fpstate] (fault) at (10,-2.1) {\texttt{FAULT}\\锁存错误，停止本通道};
+\draw[fparrow] (idle)--(address);
+\draw[fparrow] (address)--(payload);
+\draw[fparrow] (payload.north)--++(0,1.0)-| (idle.north);
+\node[fpnote,fill=white] at (5,1.25) {正确末拍：产生客户端 done，返回空闲};
+\draw[fparrow] (payload)--node[right,font=\footnotesize]{异常 LAST / ID}(fault);
+\draw[fparrow] (idle.south)--(0,-2.1)--node[above,font=\footnotesize]{非法长度；异常返回同样进入故障}(fault.west);
+\node[fpnote,text width=14cm] at (5,-3.45) {写：\texttt{WREADY} 接受数据，核验 IP 返回的 \texttt{WLAST}；读：\texttt{RVALID} 时接收并核验 \texttt{RID/RLAST}。\\地址接受与首拍数据可以同周期发生；故障通道只通过复位恢复。};
+\end{tikzpicture}
+\caption{DDR 事务状态与完成条件（读写通道分别独立运行）}
+\label{fig:fpga-ddr-fsm}
+\end{figure}

@@ -1,0 +1,28 @@
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}
+\node[fpblock] (rx) at (0,0) {MS7200 并行输入\\RGB888、DE、VS};
+\node[fpblock] (gamma) at (5,0) {输入寄存 + 自动 Gamma\\\texttt{pixclk\_in}};
+\node[fpblock] (capture) at (10,0) {RGB565 / 完整帧采集\\打包 → 采集异步 FIFO};
+\node[fpblock] (render) at (0,-2.3) {双槽分块渲染器\\联合逆投影 / 源缓存 / 采样};
+\node[fpblock] (arb) at (5,-2.3) {DDR 读写仲裁器\\采集/渲染写，显示/渲染读};
+\node[fpblock] (ddr) at (10,-2.3) {\texttt{DDR3\_50H} IP\\用户数据 256 bit / DDR3};
+\node[fpblock] (display) at (0,-4.6) {结果帧预取 / 显示 FIFO\\RGB565 解包};
+\node[fpblock] (output) at (5,-4.6) {RGB888 展开 / 输出寄存\\独立 1080p60 光栅};
+\node[fpblock] (tx) at (10,-4.6) {MS7210 并行输出\\RGB888、DE、HS、VS};
+\draw[fparrow] (rx)--(gamma);
+\draw[fparrow] (gamma)--(capture);
+\draw[fparrow] (capture.south)--++(0,-0.65)-| (arb.north);
+\draw[fparrow] (arb.east)--(ddr.west);
+\draw[fparrow] (ddr.south)--++(0,-0.45)-| (arb.south east);
+\draw[fparrow,<->] (render.east)--(arb.west);
+\draw[fparrow] (arb.south)--++(0,-0.65)-| (display.north);
+\draw[fparrow] (display)--(output);
+\draw[fparrow] (output)--(tx);
+\node[fpnote] at (0,-1.2) {帧级锁存 IMU 姿态与几何开关};
+\node[fpnote] at (10,0.95) {PC 掩码在输入 SOF 应用};
+\node[fpnote] at (5,-5.6) {帧槽管理、采集、渲染和显示预取由 \texttt{fram\_buf\_pose} 组织};
+\end{tikzpicture}
+\caption{默认配置的 RTL 数据通路结构原理图（按源码连接重绘）}
+\label{fig:fpga-architecture}
+\end{figure}

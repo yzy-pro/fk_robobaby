@@ -1,0 +1,22 @@
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[fpblock/.append style={text width=4.9cm}]
+\node[fpnote] at (0,0.9) {50 MHz 系统域};
+\node[fpnote] at (8,0.9) {输入像素域};
+\node[fpblock] (req) at (0,0) {锁存 \texttt{requested\_mask[2:0]}\\翻转 request，置 busy};
+\node[fpblock] (sync) at (8,0) {request 两级同步\\检测到尚未应用的新请求};
+\node[fpblock] (hold) at (0,-1.8) {保持掩码直至确认返回\\忙时拒绝后续重叠命令};
+\node[fpblock] (wait) at (8,-1.8) {等待寄存输入 VS 的 SOF\\帧内不改变应用掩码};
+\node[fpblock] (ack) at (0,-3.6) {acknowledge 两级同步\\更新系统域应用值，清 busy};
+\node[fpblock] (apply) at (8,-3.6) {原子更新 \texttt{applied\_mask\_vin}\\返回 acknowledge 翻转};
+\draw[fparrow] (req)--node[above,font=\footnotesize]{稳定数据 + 事件}(sync);
+\draw[fparrow] (req)--(hold);
+\draw[fparrow] (hold)--(ack);
+\draw[fparrow] (sync)--(wait);
+\draw[fparrow] (wait)--(apply);
+\draw[fparrow] (apply)--node[above,font=\footnotesize]{应用后确认}(ack);
+\node[fpnote,text width=14cm] at (4,-4.8) {Gamma 通过 \texttt{next\_mask\_vin} 在提交 SOF 取新值；几何开关与姿态在后级源帧 SOF 锁存。};
+\end{tikzpicture}
+\caption{PC 控制掩码跨域握手与帧边界应用流程}
+\label{fig:fpga-control-cdc}
+\end{figure}

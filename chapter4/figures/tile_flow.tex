@@ -1,0 +1,32 @@
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[fpblock/.append style={text width=3.8cm,font=\fontsize{8.5}{11}\selectfont,minimum height=10mm}]
+\node[fpnote] at (0,0.95) {投影 / 预取状态机 \texttt{ps}};
+\node[fpnote] at (5,0.95) {采样状态机 \texttt{ss}};
+\node[fpnote] at (10,0.95) {写回状态机 \texttt{ws}};
+\node[fpblock] (slot) at (0,0) {准备姿态，等待空闲块槽\\\texttt{P\_POSE / P\_SLOT}};
+\node[fpblock] (proj) at (0,-1.6) {逐点投影，坐标写 RAM\\累积有效采样点的包围矩形};
+\node[fpblock] (area) at (0,-3.2) {\texttt{P\_BOUNDS → P\_AREA}\\\texttt{→ P\_CAPACITY}\\超过 2048 beat 则置错};
+\node[fpblock] (read) at (0,-4.8) {按源矩形逐行读 DDR\\\texttt{P\_READ\_CMD / DATA}};
+\node[fpblock] (ready) at (0,-6.4) {源区域完整 → 发布块就绪\\\texttt{P\_READY}，翻转 \texttt{pb}};
+\node[fpblock] (wait) at (5,0) {\texttt{S\_WAIT}\\等待 \texttt{ready\_tiles[sb]}};
+\node[fpblock] (coord) at (5,-1.6) {读坐标 RAM\\取得有效位、源 $x/y$};
+\node[fpblock] (sample) at (5,-3.2) {相对地址 → 源 RAM\\按 lane 取样，无效点填黑};
+\node[fpblock] (pack) at (5,-4.8) {16 像素打包写输出 RAM\\完整行递增 \texttt{rows\_ready}};
+\node[fpblock] (drain) at (5,-6.4) {\texttt{S\_DRAIN}\\等待该块写完后翻转 \texttt{sb}};
+\node[fpblock] (row) at (10,0) {\texttt{W\_WAIT}\\等待下一输出行就绪};
+\node[fpblock] (load) at (10,-1.6) {\texttt{W\_LOAD}\\同步 RAM → 客户端行缓冲};
+\node[fpblock] (cmd) at (10,-3.2) {\texttt{W\_CMD}\\提交写命令并保持行缓冲};
+\node[fpblock] (done) at (10,-4.8) {\texttt{W\_DONE}\\等待真实末拍 \texttt{wr\_done}};
+\node[fpblock] (release) at (10,-6.4) {行未结束则继续下一行\\块结束释放槽，帧结束置 done};
+\foreach \a/\b in {slot/proj,proj/area,area/read,read/ready,wait/coord,coord/sample,sample/pack,pack/drain,row/load,load/cmd,cmd/done,done/release}
+  \draw[fparrow] (\a)--(\b);
+\draw[fparrow,dashed] (ready.east)--(2.5,-6.4)--(2.5,0)--(wait.west);
+\node[fpnote,rotate=90,fill=white,font=\scriptsize] at (2.5,-2.2) {块就绪后消费};
+\draw[fparrow,dashed] (pack.east)--(7.5,-4.8)--(7.5,0)--(row.west);
+\node[fpnote,rotate=90,fill=white,font=\scriptsize] at (7.5,-2.2) {行就绪即可写回};
+\node[fpnote,text width=14cm] at (5,-7.5) {全块无效时跳过源读取；两个块槽交替：下一块投影/预取与当前块采样/写回重叠。};
+\end{tikzpicture}
+\caption{双槽分块渲染流程（按三个实际状态机分组，省略等待自环）}
+\label{fig:fpga-tile-flow}
+\end{figure}

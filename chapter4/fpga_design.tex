@@ -1,128 +1,569 @@
 \chapter{FPGA 代码设计与实现}
 \label{chap:hardware}
-\section{模块划分与接口契约}
-应用 RTL 按顶层、板级接口、IMU、控制、预处理、格式、时序和存储分层。
-厂商 PLL、RAM 和 DDR3 IP 位于 \path{ipcore/}，通过对应 \path{.idf} 登记到 PDS。
-表~\ref{tab:modules} 列出默认路径的核心模块。
 
+\tikzset{
+  fpblock/.style={draw=TemplateBlue,rounded corners=2pt,fill=TemplateGray,
+    align=center,font=\fontsize{9.5}{12.5}\selectfont,minimum height=10mm,text width=4cm,inner sep=4pt},
+  fpstate/.style={fpblock,text width=3.1cm},
+  fparrow/.style={-{Stealth[length=2mm]},thick,draw=TemplateBlue},
+  fpnote/.style={align=center,font=\fontsize{8.5}{11}\selectfont,text=TemplateBlue}
+}
+
+\section{设计范围与 RTL 总体结构}
+本章以 \path{../Pgl50h/EmbFPGA.pds} 登记的工程及
+\path{src/top/hdmi_ddr3_top.v} 默认参数为依据，说明第三章算法在
+PGL50H-FBG484-6 上的 RTL 实现。系统输入、输出均为
+$1920\times1080$、60 Hz 的 HDMI 视频，外部并行接口采用 RGB888，
+DDR3 内的源帧和结果帧采用 RGB565。算法按完整源帧调度，显示端按独立光栅连续扫描，
+两者通过结果帧槽解耦；60 Hz 输出时序本身不代表每秒产生 60 个不同的矫正结果。
+
+默认参数为 \path{UNDISTORT_ENABLE=1}、\path{POSE_CORRECTION_ENABLE=1}、
+\path{POSE_TILED_ENABLE=1}、\path{INTERPOLATION_MODE=1}，
+即启用双槽分块逆投影与最近邻采样。输入预处理选择
+\path{ADAPTIVE_PREPROCESS_MODE=3}，启用帧自适应 Gamma；
+\path{PC_CONTROL_ENABLE=1} 支持运行时控制。
+\path{POSE_RECIPROCAL_LUT_ENABLE=0} 选择恢复除法流水线，
+\path{OUTPUT_BYPASS=0} 选择处理后输出。
+双线性插值由保留的串行路径实现，不属于本章默认分块数据通路。
+
+图~\ref{fig:fpga-architecture} 给出按实际实例关系整理的 RTL 结构原理图。
+图中的 DDR3 控制器以及时钟通路使用的 PLL 采用厂商 IP；
+像素处理、帧管理和仲裁功能由工程 RTL 实现。
+\input{chapter4/figures/architecture}
+
+\begin{longtable}{p{6.0cm}p{9.0cm}}
+\caption{默认数据通路中的主要模块及职责}\label{tab:modules}\\
+\toprule 模块（相对 \path{src/}） & 实现职责 \\\midrule\endfirsthead
+\toprule 模块（相对 \path{src/}） & 实现职责 \\\midrule\endhead
+\bottomrule\endfoot
+\path{top/hdmi_ddr3_top.v} & 连接板级接口、PLL、DDR3 IP、视频处理和控制通路；按参数选择生成分支。\\
+\path{board/ms72xx_ctl.v} & 组织 MS7200、MS7210 的寄存器初始化及两路 I\textsuperscript{2}C 接口。\\
+\path{video/preprocess/adaptive_gamma_stream.v} & 原始帧亮度统计、目标曲线选择、三通道同步 LUT 查询及旁路对齐。\\
+\path{video/format/rgb888_to_rgb565.v} & 对齐 VS、DE 与 RGB，寄存输出 RGB565 写接口。\\
+\path{video/pose/fram_buf_pose.v} & 完整源帧采集、帧槽分配、姿态快照、渲染启动、结果发布与显示读出。\\
+\path{video/pose/pose_renderer_tiled.v} & 双块槽调度、逐像素投影、源区域预取、最近邻采样及结果突发写回。\\
+\path{video/pose/pose_inverse_project_q14.v} & 帧姿态系数准备、定点逆投影、镜头模型及坐标有效性判定。\\
+\path{video/pose/pose_ddr_arbiter.v} & 两个写客户端、两个读客户端共享 DDR3 用户接口；核验长度、ID 和 LAST。\\
+\path{video/pose/pose_async_fifo.v} & 采集和显示数据的双时钟缓冲，含同步 RAM 预取与 Gray 指针同步。\\
+\path{video/timing/sync_vg.v}、\path{video_raster_delay.v} & 独立生成 1080p60 光栅，延迟显示 DE；二者位于同一目录。\\
+\path{video/format/rgb565_to_rgb888.v}、\path{video/preprocess/gamma_correct_rgb888.v} & RGB 展开及输出寄存；自动 Gamma 模式关闭后级固定 Gamma 运算。\\
+\path{imu/imu_protocol_50m.v}、\path{imu/attitude_cdc.v} & IMU 串口解析及姿态快照跨域。\\
+\path{control/cp2102_control.v}、\path{control/video_control_cdc.v} & PC 协议解析、串口应答及输入帧边界应用控制掩码。\\
+\path{control/gamma_telemetry.v}、\path{control/cdc_snapshot.v} & 形成同帧统计快照，握手跨域后发送遥测。\\
+\end{longtable}
+工程还保留线性帧缓存、单独去畸变及串行姿态矫正等生成分支。
+独立文件 \path{pose_frame_bank_allocator.v} 和 \path{pose_tile_read_scheduler.v}
+虽登记在工程中，默认路径未实例化；本章的帧槽、块读取调度分别对应
+\path{fram_buf_pose.v} 和 \path{pose_renderer_tiled.v} 内部逻辑。
+\sourcefile{\path{../Pgl50h/EmbFPGA.pds}；\path{../Pgl50h/src/top/hdmi_ddr3_top.v}}
+
+\section{顶层接口、时钟与启动控制}
+\subsection{顶层端口及接口边界}
+表~\ref{tab:fpga-top-ports} 中方向均相对于 FPGA。
+视频接口使用 DE 指示有效像素，输入 HS 不参与默认路径的逐行地址计数；
+完整帧内有效像素按 DE 顺序打包，不进行水平抽列或缩放。
 \begin{table}[htbp]\centering\small
-\caption{核心 RTL 模块与职责}\label{tab:modules}
-\begin{tabularx}{\textwidth}{p{6.2cm}Y}
-\toprule
-模块（相对 \path{src/}） & 职责与关键边界 \\
-\midrule
-\path{top/hdmi_ddr3_top.v} & 顶层集成、参数选择、功能控制及视频接口 \\
-\path{video/preprocess/adaptive_gamma_stream.v} & 帧统计、曲线选择、流式增强 \\
-\path{video/pose/fram_buf_pose.v} & 源帧采集、渲染调度、显示与跨域缓存 \\
-\path{video/pose/pose_inverse_project_q14.v} & 帧姿态加载、像素逆投影和无效标志 \\
-\path{video/pose/pose_renderer_tiled.v} & 分块遍历、包围矩形、缓存、采样及写回 \\
-\path{video/pose/pose_ddr_arbiter.v} & 采集、显示与渲染 DDR 请求仲裁 \\
-\path{video/pose/pose_async_fifo.v} & 像素域与 DDR 域跨域数据缓冲 \\
-\path{imu/imu_protocol_50m.v}、\path{attitude_cdc.v} & 姿态协议接收与快照同步（两者同目录） \\
-\path{control/cp2102_control.v} & 上位机协议、状态应答和遥测发送 \\
-\path{control/video_control_cdc.v} & 帧配置握手和原子应用 \\
+\caption{顶层主要物理接口}\label{tab:fpga-top-ports}
+\begin{tabularx}{\textwidth}{p{5.3cm}p{1.2cm}Y}
+\toprule 端口组及位宽 & 方向 & 含义 \\\midrule
+\path{sys_clk}、\path{video_ref_clk} & 输入 & 板载 50 MHz 系统时钟、27 MHz 视频参考时钟。\\
+\path{pixclk_in}、\path{vs_in/hs_in/de_in}、\path{r_in/g_in/b_in[7:0]} & 输入 & MS7200 输出的源同步像素总线，1080p60 下约 148.5 MHz。\\
+\path{pixclk_out}、\path{vs_out/hs_out/de_out}、\path{r_out/g_out/b_out[7:0]} & 输出 & 驱动 MS7210 的并行视频总线。\\
+\path{imu_uart_rx} & 输入 & IMU UART，921600 bit/s、8N1。\\
+\path{pc_uart_rx}、\path{pc_uart_tx} & 入/出 & 板载 CP2102 UART，115200 bit/s、8N1。\\
+\path{sys_led[7:0]} & 输出 & 低三位依次显示镜头、姿态、Gamma 的已应用使能，其余位为 0。\\
+\path{rstn_out}、两路 \path{iic*_scl/sda} & 出/双向 & 桥芯片复位与寄存器配置，SDA 通过三态接口连接。\\
+\path{mem_a[14:0]}、\path{mem_ba[2:0]}、命令/时钟端口 & 输出 & DDR3 行列/Bank 地址、差分时钟及命令控制。\\
+\path{mem_dq[31:0]}、\path{mem_dqs(_n)[3:0]}、\path{mem_dm[3:0]} & 双向/出 & 32 bit DDR3 物理数据、四组差分数据选通与字节屏蔽。\\
 \bottomrule
 \end{tabularx}
 \end{table}
 
-工程还登记了 \path{pose_tile_read_scheduler.v} 与
-\path{pose_frame_bank_allocator.v} 等独立支持模块，当前默认路径未实例化它们。
-本章所述块读取与帧槽所有权以 \path{pose_renderer_tiled.v} 和
-\path{fram_buf_pose.v} 中实际集成的控制逻辑为准。
+\subsection{时钟域划分与复位顺序}
+系统分为四类工作域，如表~\ref{tab:fpga-clocks} 所示。
+输入、输出像素时钟即使标称频率相同，也来自不同信号源，不能直接混用。
+\begin{table}[htbp]\centering\small
+\caption{实际工作时钟与承载逻辑}\label{tab:fpga-clocks}
+\begin{tabularx}{\textwidth}{p{3.0cm}p{3.0cm}Y}
+\toprule 时钟域 & 来源与频率 & 承载逻辑 \\\midrule
+\path{sys_clk} & 板载 50 MHz & UART 接收/发送、IMU 协议、PC 控制。\\
+\path{cfg_clk} & $27\times44/119\approx9.983$ MHz & 启动等待及 MS72xx I\textsuperscript{2}C 配置。\\
+\path{pixclk_in} & HDMI 接收像素时钟 & 输入寄存、自动 Gamma、RGB565 打包、源帧姿态锁存。\\
+\path{ddr_core_clk} & DDR3 IP 用户时钟 100 MHz & 采集写入、帧槽管理、投影/渲染、DDR 仲裁及显示预取。\\
+\path{pixel_clk} & $27\times44/8=148.5$ MHz & 输出光栅、RGB565 解包、输出流水线。\\
+\bottomrule
+\end{tabularx}
+\end{table}
+视频 PLL 锁定后，\path{cfg_clk} 域计数至 10000，约等待 1 ms，
+再拉高 \path{rstn_out}。\path{ms72xx_ctl} 先完成接收端 MS7200 的配置，
+再以接收端完成信号释放 MS7210 配置状态机；两路 I\textsuperscript{2}C
+使用独立驱动，按约 400 kHz 参数配置，寄存器地址低字节先发送。
+DDR3 IP 同时以 \path{rstn_out} 释放复位并完成校准。
 
-接口采用 \path{valid/ready} 或 \path{start/busy/done/error} 表达有效性和完成状态。
-源/结果帧、姿态及参数必须保持到事务完成；写命令被接收不等于写数据已经提交。
-DDR 地址以 32 bit word 为单位，数据载荷以 256 bit beat 为单位，
-二者在地址换算和带宽统计时不能混用。
+系统、输入像素和输出像素逻辑设置各自的两级复位释放同步寄存器；
+帧缓存与异步 FIFO 以 \path{ddr_init_done} 为复位条件，分别在像素域释放。
+跨域数据通路只有在相应复位释放且有效标志成立后使用。
+输出光栅由 \path{video_reset_n} 控制，独立于 DDR 校准和首帧完成状态运行，
+因此初始化尚未完成时仍能提供标准行场时序，并用诊断颜色表示状态。
 
-\section{HDMI 输入、预处理与显示对齐}
-MS7200 输出并行 RGB888 及同步信号，输入寄存器后经过两拍 Gamma 和一拍 RGB565 转换，
-总计固定四拍输入流水线。DE/VS 必须随像素延迟，防止跨行、首像素或帧边界错配。
-关闭 Gamma 时仍保留流水线延迟。显示端从结果帧获取 RGB565，转换为 RGB888 后
-按输出扫描时序驱动 MS7210。
-\figplaceholder{视频数据与控制信号对齐波形}{插入输入 SOF、DE、RGB、Gamma 输出、RGB565 输出以及首末像素的同屏波形，标注四拍延迟。}
-
-\section{DDR3 帧槽与所有权管理}
-源帧槽使用 0/3，结果帧槽使用 1/2，帧槽间隔为 16 MiB。
-一帧 RGB565 有效载荷为
+\section{视频输入、自适应 Gamma 与输出时序}
+\subsection{固定延迟的输入数据通路}
+默认输入通路如图~\ref{fig:fpga-gamma}。
+原始 RGB、DE 和低有效 VS 首先在 \path{pixclk_in} 上升沿寄存；
+送入自动 Gamma 时将 VS 取反，以高有效 VS 的上升沿表示帧起始 SOF。
+Gamma 的两个寄存级同时处理 RGB、完整 VS 电平和 DE，
+再由 \path{rgb888_to_rgb565} 寄存成写接口。总计四拍输入延迟，
+其中格式转换为
 \begin{equation}
-S_f=1920\times1080\times2=4,147,200\ \text{bytes}.
+P_{565}=\{R[7:3],\ G[7:2],\ B[7:3]\}.
 \end{equation}
-槽间隔不是单帧有效数据量，也不意味着整个间隔均参与传输。
-采集侧只写入可用源槽，渲染期间保持源帧稳定；显示侧只读完整结果帧。
+格式转换输出 \path{wr_en}、\path{wr_data[15:0]} 和 \path{vs_out}
+进入帧缓存；SOF 在帧缓存入口恢复为高有效 \path{wr_fsync}。
+Gamma 关闭时使用同延迟旁路，保证开关前后帧同步与像素位置不变。
+\input{chapter4/figures/gamma_pipeline}
 
-结果发布应满足：所有块已完成、最后一笔 DDR 写真实结束、完成消息已登记、
-显示帧边界到达并满足读事务交接条件。遇到错误 LAST、回压或渲染错误时，
-不能提前释放仍有未完成事务的槽。
-\guide{绘制源槽和结果槽状态转换图，补充各状态的进入条件、持有者和释放条件；
-说明无可用源槽时的跳帧策略、启动阶段及异常恢复行为。}
+\subsection{Gamma 的统计、控制与 LUT 电路}
+\path{adaptive_gamma_stream} 的数据接口为
+\path{in_r/g/b[7:0]}、\path{in_de/in_vs} 输入和对应
+\path{out_r/g/b[7:0]}、\path{out_de/out_vs} 输出，流水线启动间隔为一拍，
+接口不支持输入回压。控制端 \path{enable} 在 SOF 锁存，
+输出 \path{active_curve[2:0]}、\path{target_curve[2:0]} 表示曲线状态。
 
-\section{双槽分块渲染器}
-\subsection{块尺寸及流水过程}
-当前输出块为 $128\times32$，1080p 分为 15 列、34 行，共 510 块，末排高度 24。
-块内逐点执行以下过程：计算逆投影并缓存坐标，统计有效源采样点的包围矩形，
-按行突发读取源矩形至片内 RAM，连续采样形成结果块，最后逐行突发写回 DDR3。
-两个槽使下一块的投影/读源与当前块的采样/写回重叠，隐藏部分访存和流水排空开销。
+亮度以 $Y=(R+2G+B)\gg2$ 计算，仅对原始输入的 DE 像素累加。
+内部亮度和为 30 bit，像素数、暗像素数和高亮像素数为 22 bit，
+分别覆盖 1080p 的最大亮度和 528768000 与像素数 2073600。
+统计结果在下一帧 SOF 以 \path{stats_valid} 发布，四项统计扩展为 32 bit；
+\path{stats_curve/stats_target/stats_enabled} 描述刚完成的统计帧。
 
+曲线选择电路通过亮度和 $S$ 与常数倍像素数 $N$ 比较，避免实时求平均值除法。
+在不满足混合光照判据时，按表~\ref{tab:fpga-gamma-select} 选曲线。
+若暗像素 $Y<48$ 和高亮像素 $Y\ge208$ 均至少占 $1/8$，优先选择曲线 2。
 \begin{table}[htbp]\centering\small
-\caption{当前分块配置下的主要片内缓存}
-\begin{tabularx}{\textwidth}{p{4.2cm}YY}
-\toprule
-缓存 & 逻辑容量 & 用途 \\
-\midrule
-双槽源区域缓存 & 每槽 $2048\times256$ bit，64 KiB & 两槽合计 128 KiB，存放源矩形 \\
-双槽坐标 RAM & 总计 $8192\times23$ bit & 缓存有效位与最近邻源坐标 \\
-双槽输出块 RAM & 总计 $512\times256$ bit & 每块 4096 个 RGB565 像素 \\
-采集/显示异步 FIFO & 各 $512\times256$ bit & 两个像素域与 DDR 域间解耦 \\
-客户端写突发缓冲 & 每个相关客户端 $16\times256$ bit & 分布式 RAM 持有写数据至真实完成 \\
+\caption{自动 Gamma 的分类规则及预存指数}\label{tab:fpga-gamma-select}
+\begin{tabular}{ccc}
+\toprule 分类条件（依次判定） & 曲线编号 & LUT 指数 $\gamma$ \\\midrule
+$S<48N$ & 0 & 0.50\\
+$48N\le S<80N$ & 1 & 0.65\\
+$80N\le S<112N$ & 2 & 0.80\\
+$S>208N$ & 6 & 1.90\\
+$176N<S\le208N$ & 5 & 1.55\\
+$144N<S\le176N$ & 4 & 1.25\\
+其余 & 3 & 1.00\\
+\bottomrule
+\end{tabular}
+\end{table}
+连续两次分类相同才更新目标曲线；活动曲线仅在 SOF 向当时已有目标移动一级。
+当前 SOF 发布的统计稍后才形成新目标，因此不会改变正在开始的这一帧。
+复位时活动与目标均为恒等曲线 3。
+\path{adaptive_gamma_lut} 按
+$\operatorname{round}[255(v/255)^\gamma]$ 预存映射，
+地址为曲线号与 8 bit 通道值拼接；每通道实例化一份 $2048\times8$ bit 同步 ROM。
+关闭增强仍保留原始统计与曲线状态演进，像素选择延迟匹配的旁路值。
+\sourcefile{\path{../Pgl50h/src/video/preprocess/adaptive_gamma_stream.v}；\path{adaptive_gamma_lut.v}}
+
+\subsection{显示读出及行场对齐}
+\path{sync_vg} 的行总长为 2200 像素，场总长为 1125 行，
+有效区域为 $1920\times1080$；水平前肩/同步/后肩分别为 88/44/148，
+垂直分别为 4/5/36。在 148.5 MHz 下，帧率为
+$148.5\times10^6/(2200\times1125)=60$ Hz。
+默认 \path{alg_rd_en=timing_de}，每个有效扫描位置都请求一个像素。
+
+显示 FIFO 的 256 bit 数据按低位到高位拆成 16 个 RGB565 像素，
+\path{fram_buf_pose} 内两拍寄存输出像素。
+\path{video_raster_delay} 将光栅 DE 延迟同样的两拍，
+\path{rgb565_to_rgb888} 用位复制组合展开到 RGB888，
+后级 \path{gamma_correct_rgb888} 即使关闭运算仍保留一拍寄存，
+最终顶层输出再寄存一拍。因此默认数据、DE、HS、VS 相对于输出时序源均延迟四拍。
+自动 Gamma 生效时后级固定 Gamma 被旁路，避免重复校正。
+
+最终视频寄存器放置在输出 I/O 单元；物理 \path{pixclk_out} 保持正相，
+RGB/控制在上升沿更新，MS7210 按下降沿采样。
+DE 无效时 RGB 清零；有效期内依优先级输出初始化诊断颜色：
+发送端未完成为品红、DDR PLL 未锁定为蓝、DLL 未锁定为青、
+DDR 未完成校准为红、尚无完整结果帧为黄，均就绪后输出处理数据。
+\sourcefile{\path{../Pgl50h/src/top/hdmi_ddr3_top.v}；\path{../Pgl50h/src/video/timing/}}
+
+\section{完整帧缓存与帧槽所有权}
+\subsection{帧缓存接口和 DDR 地址组织}
+\path{fram_buf_pose} 将采集、渲染与显示封装为统一帧缓存。
+输入域接收 \path{wr_fsync/wr_en/wr_data[15:0]} 和已跨域的
+\path{imu_yaw/imu_pitch[15:0]}、\path{lens_enable}；
+输出域接收 \path{rd_fsync/rd_en}，返回
+\path{vout_de/vout_data[15:0]}；DDR 域输出下节定义的用户命令。
+\path{init_done} 在首个结果帧交给显示后置位，
+\path{captured_frames/rendered_frames/displayed_frames} 分别计数采集提交、渲染完成和结果发布次数。
+这些诊断计数及 \path{protocol_error} 等端口在当前顶层留空，未直接接入 UART 遥测。
+
+一帧的有效数据量为
+\begin{equation}
+S_f=1920\times1080\times2=4147200\ \text{bytes},\qquad
+N_b=\frac{1920\times1080}{16}=129600\ \text{beat}.
+\end{equation}
+DDR 用户地址以 32 bit word 为单位，一拍 256 bit 占 8 个地址单位，
+同一帧相邻行首地址相差 $1920/2=960$。
+帧槽 $b$ 的基址及其中像素 $(x,y)$ 所在 beat 地址为
+\begin{equation}
+A_b=b\,2^{22},\qquad
+A(b,x,y)=A_b+960y+8\left\lfloor\frac{x}{16}\right\rfloor.
+\label{eq:fpga-ddr-address}
+\end{equation}
+像素在 beat 内的 lane 为 $x\bmod16$，首像素位于数据低 16 bit。
+基址转换为字节地址后如表~\ref{tab:fpga-banks}。
+\begin{table}[htbp]\centering\small
+\caption{DDR3 帧槽布局}\label{tab:fpga-banks}
+\begin{tabular}{cccc}
+\toprule 槽号 & 用户地址基址（word） & 字节地址基址 & 用途 \\\midrule
+0 & \texttt{0x0000000} & \texttt{0x00000000} & 源帧 A\\
+1 & \texttt{0x0400000} & \texttt{0x01000000} & 结果帧 A\\
+2 & \texttt{0x0800000} & \texttt{0x02000000} & 结果帧 B\\
+3 & \texttt{0x0C00000} & \texttt{0x03000000} & 源帧 B\\
+\bottomrule
+\end{tabular}
+\end{table}
+帧槽间隔为 16 MiB，仅有效帧载荷参与传输；DDR 帧槽与后文片内两个块槽是不同层次的缓存。
+
+\subsection{源帧采集、提交与并行调度}
+DDR 域翻转 \path{capture_request} 请求一帧，输入域同步该翻转，
+在下一个 SOF 才开始采集，并同时锁存 yaw、pitch 和镜头使能。
+每收齐 16 个有效像素产生一个 256 bit FIFO 写脉冲。
+DDR 域从采集 FIFO 取数，先装满最多 16 beat 的客户端突发 RAM，再提交写命令。
+未凑满 16 beat 的尾部在确认采集结束且 FIFO 排空后提交。
+
+输入域收齐 2073600 个像素后发布完成翻转；DDR 域同步完成与失败标志，
+再等待 8 个 DDR 时钟，使完成消息和最后一笔 FIFO 写指针均有时间到达。
+只有 FIFO 无有效数据、占用计数为零、无未完成采集写、突发缓冲为空，
+且已完成写入恰为 129600 beat 时，才接受该源帧。
+输入提前出现新 SOF、FIFO 满导致写脉冲未被接受或帧长度不符，均使该帧被丢弃并重新请求。
+HDMI 输入不能回压，FIFO 的 \path{wr_ready} 只用于检测接收失败。
+
+默认快速路径的控制状态为
+\path{C_REQUEST}（请求采集）、\path{C_CAPTURE}（收集并提交）和
+\path{C_RENDER}（完整源帧等待调度）。后者需等待渲染器空闲、无待发布结果且无渲染错误，
+再把源帧槽、姿态和镜头使能交给渲染器。
+启动后采集槽在 0/3 间切换，下一帧采集与当前帧渲染重叠；
+若新源帧已就绪而渲染器仍忙，就保持该源帧，并跳过后续输入帧，直到它可以调度。
+\input{chapter4/figures/frame_ownership}
+
+\subsection{结果发布与显示 epoch 握手}
+结果帧始终写入当前显示槽之外的 1/2 号槽。
+\path{renderer_done} 且无错误时设置 \path{pending_valid}，表示完整结果已提交。
+显示域在 VS 上升沿翻转 \path{display_request}，开始刷新 epoch，停止使用旧像素并排空显示 FIFO。
+DDR 域检测到新 epoch 后停止发旧帧读命令，等在途读完成且 FIFO 写域空闲额度恢复为全深度，
+才确认 epoch；此时如有待发布结果则切换显示槽，否则继续使用原显示槽。
+显示域收到确认后返回 \path{display_accept_epoch}，DDR 域收到此接受消息才允许新一轮预取。
+因此旧事务、旧 FIFO 数据均先结束，随后才允许新的帧数据进入。
+
+显示按最多 16 beat 突发预取，发命令前检查 FIFO 空闲额度能够容纳整笔返回。
+若有效扫描期间 FIFO 饥饿，置位粘滞诊断 \path{display_underrun}，
+并把本帧余下像素补黑、排掉迟到数据，下一帧边界重新交接，避免晚到像素造成水平错位。
+\path{displayed_frames} 只在发布新结果时增加，不能用它直接计数全部物理 HDMI 扫描帧。
+\sourcefile{\path{../Pgl50h/src/video/pose/fram_buf_pose.v}}
+
+\section{双槽分块渲染器设计}
+\subsection{接口契约、块划分与片内存储}
+\path{pose_renderer_tiled} 工作在 100 MHz DDR 用户时钟域。
+\path{start} 仅在 \path{busy=0} 时接收；同时锁存
+\path{source_bank[1:0]}、\path{render_bank[1:0]}、
+\path{yaw_q2048/pitch_q2048[15:0]} 和 \path{lens_enable}。
+整个渲染过程中这些帧级参数保持不变。
+\path{done} 为一拍完成脉冲，\path{completed_bank[1:0]} 指示结果槽；
+\path{error} 表示容量或数据返回异常，出现后停止继续调度，当前实现依赖复位恢复。
+
+输出划分为 $128\times32$ 的块，按从左到右、从上到下顺序遍历。
+1080p 共 15 列、34 排、510 块，最后一排高度为 24。
+每块所有输出像素均执行定点逆投影，逐点记录最近邻采样坐标，
+不采用只计算块角点的网格近似。
+内部块槽 0/1 各包含坐标 RAM、源区域 RAM 和输出 RAM，容量见表~\ref{tab:fpga-tile-memory}。
+\begin{table}[htbp]\centering\small
+\caption{默认分块配置的逻辑缓存容量}\label{tab:fpga-tile-memory}
+\begin{tabularx}{\textwidth}{p{4.0cm}p{4.4cm}Y}
+\toprule 缓存 & 容量 & 实现用途 \\\midrule
+\path{coordinates} & 总计 $8192\times23$ bit & 每项为有效位、11 bit 源行坐标、11 bit 源列坐标。\\
+\path{source_mem} & 总计 $4096\times256$ bit & 每槽 2048 beat，即 64 KiB 源矩形缓存。\\
+\path{output_mem} & 总计 $512\times256$ bit & 每槽 256 beat，容纳一个完整 $128\times32$ 结果块。\\
+采集/显示 FIFO & 各 $512\times256$ bit & 各 16 KiB，跨像素域与 DDR 域。\\
+采集/渲染写 RAM & 各 $16\times256$ bit & 客户端持有的分布式 RAM 突发缓冲。\\
 \bottomrule
 \end{tabularx}
 \end{table}
-这些是 RTL 逻辑容量，不能直接等同于最终 DRM 位置数；实际映射受到端口、
-宽深组合和布局因素影响，资源统计见第~\ref{chap:performance}~章。
+这些是 RTL 逻辑容量，实际 DRM 位置数还取决于端口组织和工具映射。
+大容量 RAM 不逐项复位，而是复位指针、占用和有效状态，
+以先写后读及槽所有权防止使用旧内容，并保持同步块 RAM 推断。
 
-\subsection{容量保护与 DDR 突发}
-源矩形按 16 个 RGB565 像素/256 bit beat 对齐，单条命令包含 1～16 beat。
-容量检查依次经过 \path{P_BOUNDS}、\path{P_AREA} 和 \path{P_CAPACITY}：
-先求宽高，再计算面积，最后比较缓存容量；超限块在发出首条 DDR 读请求前拒绝。
-全部像素无效的块不读取无意义源区域。
+\subsection{投影、包围矩形与源区域预取}
+图~\ref{fig:fpga-tile-flow} 将投影/读源、采样和写回三个并行状态机展开。
+\path{pb} 指向投影/预取块槽，\path{sb} 指向采样/写回块槽；
+\path{occupied} 与 \path{ready_tiles} 分别表示槽被占用、坐标和源区域已准备好。
+投影器每拍接收一个块内输出位置，返回值有效时用
+\begin{equation}
+x_t=\left\lfloor u_s+\tfrac12\right\rfloor,\qquad
+ y_t=\left\lfloor v_s+\tfrac12\right\rfloor
+\end{equation}
+得到最近邻坐标。RTL 直接使用 Q14 坐标整数部分加第 13 位实现舍入，
+并对所有有效采样点求 $x_{\min},x_{\max},y_{\min},y_{\max}$。
+\input{chapter4/figures/tile_flow}
 
-历史软件保守区间分析对相同标定、yaw/pitch 整数限值给出的 $128\times32$
-源区域上界为 1200 beat，小于单槽 2048 beat。该结果来自软件算术模型，
-不等同于 HDL 形式等价证明，也不直接证明所有姿态的最坏渲染时间。
-\fillin{当前源码对应的容量边界日志与必要的重新审查结果}。
+源矩形按 16 像素打包边界横向扩展，所需 beat 数为
+\begin{equation}
+W_s=\left\lfloor\frac{x_{\max}}{16}\right\rfloor-
+\left\lfloor\frac{x_{\min}}{16}\right\rfloor+1,\qquad
+H_s=y_{\max}-y_{\min}+1,\qquad B_s=W_sH_s.
+\end{equation}
+\path{P_BOUNDS} 寄存矩形宽高，\path{P_AREA} 寄存面积，
+\path{P_CAPACITY} 检查 $B_s\le2048$，将减法、乘法和比较分到不同周期。
+超限时在发出首个读命令前置错，避免源 RAM 地址截断引起静默覆盖。
+全块坐标无效时直接标记块就绪，后续生成黑块而不读源帧。
 
-\subsection{共享写数据与资源优化}
-当前版本将采集侧和渲染侧写突发存放在客户端持有的分布式 RAM 中。
-仲裁器按 beat 索引读取当前客户端缓冲，减少重复的 4096 bit 宽数据寄存器。
-客户端直到最后一个有效 WREADY/WLAST 传输完成才释放缓冲，
-期间由 FIFO 回压保护后续采集数据。RAM 内容无需逐字复位，
-通过状态、长度和所有权保证有效数据先写后读。
-\guide{可插入优化前后结构图，并用相同工具、配置和约束比较资源/时序。
-历史版本同时改变块尺寸和控制逻辑，不能将全部资源差值归因于单一修改。}
+读取接口为 \path{rd_cmd_valid/ready}、\path{rd_cmd_addr[27:0]}、
+\path{rd_cmd_len[4:0]}，长度为实际 beat 数 1～16。
+按源矩形逐行发突发，不把跨行的无关数据并入同笔请求。
+返回接口 \path{rd_data_valid}、\path{rd_data[255:0]}、\path{rd_data_last}
+没有回压；这里的 \path{rd_data_last} 接的是仲裁器核验后的读完成脉冲。
+每拍写入当前块槽源 RAM，并核对末拍位置与累计缓存容量。
+读源完成后发布 \path{ready_tiles[pb]}，投影端转向另一空槽。
 
-\section{跨时钟域、复位与时序约束}
-\subsection{跨域机制与适用前提}
-像素数据通过 Gray 指针异步 FIFO 跨域；四条指针总线分别进行偏斜约束和双角审计。
-IMU 姿态通过事件翻转和稳定快照同步，其正确性依赖源数据在目标捕获期间保持稳定，
-并非适用于任意发送速率的带确认邮箱。功能配置和多字统计快照则使用带返回确认的握手机制。
-异步复位的释放和数据有效性应按各自时钟域检查，不能以时序例外替代同步电路。
+\subsection{最近邻采样、行就绪与结果写回}
+采样状态机对就绪块依序读取坐标，经过“坐标 RAM → 相对地址 → 源 RAM → lane 选择 → 打包”
+流水线，每拍启动一个像素。若源矩形左边界的 beat 列为 $x_{w0}$、首行为 $y_0$，
+局部源 RAM 地址为
+\begin{equation}
+a_{\mathrm{local}}=(y_t-y_0)W_s+
+\left(\left\lfloor x_t/16\right\rfloor-x_{w0}\right).
+\end{equation}
+以 $x_t\bmod16$ 选择 16 bit 像素；坐标有效位为零时输出黑色。
+每 16 个像素打包写入输出 RAM，\path{rows_ready} 记录已完整生成的行数。
 
-\subsection{FDC 约束与验证口径}
+写回状态机无需等待整块采样结束，只需下一行已经完整生成，即可在
+\path{W_LOAD} 将该行从同步输出 RAM 装载到客户端突发 RAM，
+排空最后一拍 RAM 读延迟后，以 \path{W_CMD} 发写请求。
+一个 128 像素行对应 8 beat，写地址按式~\eqref{eq:fpga-ddr-address} 计算。
+\path{wr_cmd_valid/ready} 仅表示仲裁器接收命令，
+客户端仍须保持缓冲内容，直到 \path{wr_done} 才推进结果行。
+块最后一行真实写完后清除占用、切换 \path{sb}；最后一个块提交后才撤销
+\path{busy} 并产生 \path{done}，不会在仅完成投影或发出写地址时发布结果。
+
+两个块槽允许第 $n+1$ 块投影及读源与第 $n$ 块采样和写回重叠；
+同块内还允许已完成行写回与后续行采样重叠。
+当两个几何开关均关闭、帧姿态为零时，渲染器选择精确恒等坐标通路，
+避开定点往返误差和投影器的边界保护，保留最后一行、最后一列的直接拷贝。
+\sourcefile{\path{../Pgl50h/src/video/pose/pose_renderer_tiled.v}}
+
+\section{姿态与镜头联合逆投影流水线}
+\subsection{模块接口与定点格式}
+\path{pose_inverse_project_q14} 以 \path{pose_load} 锁存帧姿态及镜头开关，
+准备三角系数后置 \path{pose_ready}；渲染器等待该信号后才发送像素。
+输入为 \path{in_valid} 与 \path{dst_x/dst_y[10:0]}，
+输出为 \path{out_valid}、\path{map_valid} 和两个有符号 32 bit Q14 源坐标。
+\path{out_valid} 表示该拍对应一个已经处理完的输入坐标，
+\path{map_valid} 才表示此坐标能够采样。无效位置仍占一个输出顺序位置，
+下游将其填黑，不能删去该项；投影流水线没有 \path{ready} 回压接口。
+
 \begin{table}[htbp]\centering\small
-\caption{主要时序约束及审查要点}
-\begin{tabularx}{\textwidth}{p{3.1cm}YY}
-\toprule
-对象 & 工程配置 & 审查重点 \\
-\midrule
-主时钟 & 50 MHz、27 MHz、输入约 148.5 MHz & 生成时钟须保留实际来源及倍分频关系 \\
-HDMI 输入 & 最大 +2.000 ns，最小 $-0.500$ ns & 与桥芯片、布线及采样关系核对 \\
-HDMI 输出 & 最大 +1.500 ns，最小 $-0.500$ ns & 约束中描述 MS7210 下降沿采样 \\
-异步时钟关系 & 像素、DDR、配置等相应时钟组 & 逐项对应 FIFO、同步器或 IP 跨域结构 \\
-FIFO Gray 偏斜 & 上限 6.734 ns & 四条总线每条 10 bit，快慢角均完整覆盖 \\
-最终检查 & setup/hold、recovery/removal、脉宽 & 独立检查偏斜报告和 I/O 覆盖 \\
+\caption{主要定点量及数值含义}\label{tab:fpga-fixed-point}
+\begin{tabularx}{\textwidth}{p{4.0cm}p{3.2cm}Y}
+\toprule 量 & 位宽/小数位 & 说明 \\\midrule
+yaw、pitch & 有符号 16 bit，11 位小数 & Q2048 弧度值；实际角度为码值除以 2048。\\
+正弦、余弦 & 有符号 16 bit，14 位小数 & 整数角度查表及表间线性插值。\\
+归一化坐标、旋转射线 & 有符号 24 bit，18 位小数 & 乘法保留宽中间结果，按级移位回到 Q18。\\
+$f_x,f_y,c_x,c_y$ & 有符号 32 bit，14 位小数 & 由标定参数预量化；焦距倒数为编译期常数。\\
+$k_1,k_2,p_1,p_2$ & 有符号 18 bit，14 位小数 & 默认 $162,-711,0,0$。\\
+输出源坐标 & 有符号 32 bit，14 位小数 & 下游按整数部分及最高小数位进行最近邻舍入。\\
 \bottomrule
 \end{tabularx}
 \end{table}
-工具通过建立在时钟、接口预算和例外正确的前提上，板级可靠性仍需持续运行与信号测试。
-\sourcefile{\path{../Pgl50h/src/video/pose/}；\path{../Pgl50h/src/constraints/hdmi_ddr3_top.fdc}}
+默认渲染器向投影器传入 \path{POSE_LIMIT_Q2048=536}，即约
+$\pm15^\circ$；超限输入先钳位并置 \path{pose_clamped}。
+该上限来自调用实例，不能误用投影模块独立声明中更大的兼容默认值。
+roll 虽由 IMU 解码，但默认联合矫正只使用 yaw、pitch。
+
+\subsection{分级运算与有效性传播}
+图~\ref{fig:fpga-projector} 给出联合映射的硬件运算顺序。
+输出坐标从 0 开始，而标定主点采用原有的一基坐标，因此归一化使用
+$(u_d+1-c_x)/f_x$、$(v_d+1-c_y)/f_y$，投回源图时再减 1。
+归一化乘以编译期预求的焦距倒数，不在像素通路中计算焦距除法。
+\input{chapter4/figures/projection_pipeline}
+
+三角系数准备按“幅值钳位 → 弧度转角度 → 相邻整数角度查表 → 插值乘积 → 符号恢复”分级。
+像素前端分成归一化、yaw 乘积、yaw 求和、pitch 乘积、pitch 求和五级，
+实现第三章所定义的逆向射线映射
+$\boldsymbol{r}=R_x(\mathrm{pitch})R_y(\mathrm{yaw})[x_d,y_d,1]^\mathsf{T}$。
+这里采用从理想输出射线映射到当前相机射线的方向，
+不将用于描述相机朝向的逆矩阵 $C=R_y(-\mathrm{yaw})R_x(-\mathrm{pitch})$ 直接用于采样。
+系数快照随像素前端一起寄存，避免控制更新与在途像素混用。
+
+透视归一化使用两个并行的恢复除法器计算 $r_x/r_z$、$r_y/r_z$。
+分子宽度为 $24+18=42$ bit，每一级处理一位，形成 42 级除法流水线，
+从而用多级延迟换取每拍一组坐标的吞吐，而非每像素等待一次串行除法。
+默认关闭实验性的倒数 LUT 分支。
+射线须满足 $r_z>1024/2^{18}$ 且 $|r_x|,|r_y|<2r_z$，
+不满足时仍传播有效拍但清除候选有效位，并使用安全分母/分子进入后续运算。
+
+镜头模型依次计算 $x^2,y^2,xy,r^2,r^4$、径向系数和切向偏移，
+再乘焦距并加主点。乘法、交叉项求和与主点累加分别寄存，
+较宽焦距乘法还拆分为高低部分积，缩短单周期组合链。
+镜头开关关闭时径向缩放设为 1、切向项设为 0，姿态映射仍正常工作。
+镜头开启时还要求 $r^2\le600000/2^{18}$。
+最终保守有效范围为 $0\le u_s<1919$、$0\le v_s<1079$，
+这是投影模块沿用的四邻域边界保护；默认最近邻路径也继承该判据，
+仅前述精确恒等通路绕过它。所有阶段同步传递 valid 和候选标志，
+渲染器以返回 valid 计数排空流水线，不用固定等待估计完成时间。
+\sourcefile{\path{../Pgl50h/src/video/pose/pose_inverse_project_q14.v}}
+
+\section{DDR3 仲裁与事务完成控制}
+\subsection{用户接口与客户端握手}
+\path{pose_ddr_arbiter} 为采集写、渲染写、显示读、渲染读提供统一接口。
+写通道固定采集优先，读通道固定显示优先；读写通道分别拥有独立状态机，
+允许同时存在一笔读事务与一笔写事务，各自最多一笔在途，不交错同向事务。
+同向优先请求持续存在时，渲染请求等待仲裁。
+
+\begin{table}[htbp]\centering\small
+\caption{DDR3 IP 用户接口的实际语义}\label{tab:fpga-ddr-interface}
+\begin{tabularx}{\textwidth}{p{5.0cm}p{2.2cm}Y}
+\toprule 信号 & 方向（仲裁器） & 语义 \\\midrule
+\mbox{\texttt{axi\_awaddr[27:0]}}、\mbox{\texttt{awid[3:0]}}、\mbox{\texttt{awlen[3:0]}}、\mbox{\texttt{awvalid}} & 输出 & 写首地址、客户端 ID、beat 数减 1、地址有效；等待 \path{awready}。\\
+\mbox{\texttt{axi\_wdata[255:0]}}、\mbox{\texttt{wstrb[31:0]}} & 输出 & 当前 beat 及字节写使能，默认屏蔽全开。\\
+\mbox{\texttt{axi\_wready}}、\mbox{\texttt{axi\_wlast}} & 输入 & IP 接受当前写 beat，IP 指示该拍为最后一拍。\\
+\mbox{\texttt{axi\_araddr[27:0]}}、\mbox{\texttt{arid[3:0]}}、\mbox{\texttt{arlen[3:0]}}、\mbox{\texttt{arvalid}} & 输出 & 读首地址、客户端 ID、beat 数减 1、地址有效；等待 \path{arready}。\\
+\mbox{\texttt{axi\_rdata[255:0]}}、\mbox{\texttt{rid[3:0]}}、\mbox{\texttt{rvalid/rlast}} & 输入 & 无回压读返回，逐 beat 核对 ID 与最后一拍标志。\\
+\bottomrule
+\end{tabularx}
+\end{table}
+该接口是厂商 DDR3 IP 的精简 AXI 风格接口，不能按完整 AXI4 连接理解：
+没有 \path{WVALID}、\path{RREADY} 或写响应 B 通道，
+\path{axi_wlast} 是 IP 输出给仲裁器的信号。
+因此发 AW 前客户端必须准备好整笔写数据，发 AR 前必须预留整笔返回空间。
+内部命令长度为 5 bit 的实际 beat 数 $L\in[1,16]$，
+对 IP 编码为 4 bit 的 $L-1$；采集/显示 ID 为 0，渲染 ID 为 1。
+
+\subsection{事务状态机及共享写缓冲}
+如图~\ref{fig:fpga-ddr-fsm}，\path{IDLE} 接受客户端
+\path{valid && ready} 后锁存地址、长度和所有者；\path{ADDRESS} 保持地址及 valid，
+直至 IP 接受；\path{PAYLOAD} 按真实 beat 传输推进计数。
+实现还覆盖地址握手与首个数据传输出现在同一周期的情况。
+\input{chapter4/figures/ddr_transaction}
+
+每次 \path{WREADY} 有效才推进写 beat 索引，并核对
+\path{WLAST==(remaining==1)}；只有正确接受最后一个 beat 才产生
+\path{cap_w_done} 或 \path{render_w_done}。
+此处完成的含义是 IP 用户接口已接受全部数据，并非 DDR 器件物理写入的独立确认。
+读返回则要求当前处于允许返回的事务阶段、ID 匹配且 LAST 与剩余长度一致，
+通过后路由到对应客户端，末拍同时产生 \path{*_r_done}。
+非法长度、过早/过晚 LAST、错误 ID 或无事务返回均使相应通道进入
+\path{FAULT}，置位 \path{protocol_error}，直到复位才恢复，防止错误事务引起帧槽提前复用。
+
+默认 \path{SHARED_WRITE_PAYLOAD=1}，采集端与渲染端各自持有
+$16\times256$ bit 分布式 RAM，仲裁器输出 \path{write_beat_index[3:0]}，
+从当前所有者读出 \path{cap_w_beat/render_w_beat[255:0]}。
+等待 \path{WREADY} 时索引不变，数据保持稳定；客户端直到 done 才重填缓冲。
+旧式 \path{wr_data[4095:0]} 端口在该模式固定为零，
+避免重复存储整笔 4096 bit 载荷，降低宽寄存器和选择网络开销。
+\sourcefile{\path{../Pgl50h/src/video/pose/pose_ddr_arbiter.v}；\path{fram_buf_pose.v}；\path{pose_renderer_tiled.v}}
+
+\section{姿态输入、运行控制与统计遥测}
+\subsection{IMU 协议及帧姿态快照}
+\path{imu_uart_rx_50m} 在 50 MHz 域同步异步串口输入并按 16 倍波特率采样。
+\path{imu_protocol_50m} 依次识别
+\texttt{55 AA}、6 字节姿态载荷、载荷累加和低 8 bit、帧尾 \texttt{0D}。
+yaw、pitch、roll 各占小端序 16 bit；仅校验和及帧尾均正确时，
+同时更新三轴数据、产生一拍 \path{attitude_valid} 并翻转 \path{attitude_toggle}。
+
+\path{attitude_cdc} 将事件翻转两级同步并捕获稳定角度快照。
+顶层同时保留向输出像素域和输入像素域的同步实例；默认完整帧路径使用输入域的快照，
+在被选中源帧的 SOF 锁存 yaw/pitch，此后直到源帧提交与渲染调度均保持不变。
+姿态开关关闭时顶层向帧缓存送零角度；实现使用绝对姿态值，未在该通路额外加入三轴融合、
+roll 补偿或相邻帧姿态差计算。
+该 CDC 没有返回确认，正确性依赖 IMU 更新间隔足够长、数据在快照捕获期间稳定，
+不能用于任意高速变化总线。
+
+\subsection{PC 控制的帧边界原子应用}
+控制掩码 \path{mask[2:0]} 中 bit 0、1、2 分别为镜头、姿态、自动 Gamma 使能。
+串口包为 \texttt{A5 5A | version | type | sequence | length | payload | XOR}，
+版本为 1，XOR 覆盖 version 到 payload。
+\path{cp2102_control} 校验长度、可用功能、参数范围和忙状态后，
+输出 \path{control_valid} 与 \path{control_mask[2:0]}。
+\begin{table}[htbp]\centering\small
+\caption{PC 串口命令与应答类型}
+\begin{tabularx}{\textwidth}{p{2.2cm}p{3.0cm}Y}
+\toprule 类型 & 载荷 & 行为 \\\midrule
+\texttt{0x10} & 1 字节功能掩码 & 请求更新三个功能开关，忙时拒绝重叠请求。\\
+\texttt{0x11} & 无 & 查询请求值、应用值及控制状态。\\
+\texttt{0x12} & 1 字节 0/1 & 关闭/开启周期遥测。\\
+\texttt{0x13} & 无 & 请求最近一次统计快照，无快照时返回错误。\\
+\texttt{0x80} & 8 字节 & 状态应答，保留请求序号并携带结果码。\\
+\texttt{0x81} & 28 字节 & 统计遥测，使用独立递增序号。\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\path{video_control_cdc} 在系统域锁存 \path{requested_mask} 并翻转 request，
+输入域同步后在寄存 VS 产生的 SOF 才更新 \path{applied_mask_vin} 并返回 acknowledge；
+系统域收到确认后才更新 \path{applied_mask_sys} 并清 busy。
+图~\ref{fig:fpga-control-cdc} 给出顺序。
+Gamma 在该 SOF 使用 \path{next_mask_vin}，确保与掩码提交同帧生效；
+后级几何参数在延迟后的 RGB565 SOF 使用已应用掩码。
+因此同一源帧的三个开关一致，控制值保持到整帧结束。
+\input{chapter4/figures/control_cdc}
+
+命令应答成功表示请求已接收，是否已应用需结合 busy 和应用掩码判断；
+LED 显示源帧侧的已应用状态，显示器仍可能正在扫描较早配置生成的完整结果帧。
+输入无新 SOF 时请求保持 busy，不会在帧中途强制应用。
+
+\subsection{遥测快照与跨域发送}
+\path{gamma_telemetry} 同时接收原始统计和 Gamma 输出像素，
+额外统计输出亮度和；亮度计算先寄存再累加，将 ROM 查询与 32 bit 累加链隔开。
+每份 224 bit 快照包含帧号、输入亮度和、有效像素数、暗/高亮像素数、
+输出亮度和，以及各占一字节的曲线号、目标号、使能和掩码。
+统计元数据对齐已完成帧，避免把新帧开关附在旧帧亮度上。
+
+\path{cdc_snapshot} 使用数据保持寄存器和 request/acknowledge 翻转握手，
+将整份快照从输入像素域送到 50 MHz 域；源端 busy 时丢弃新采样，保持在途数据完整。
+\path{cp2102_control} 缓存最近快照，默认 10 Hz 上报，命令应答优先于遥测。
+多字节字段按低字节先发。这条通路用于观察亮度和开关，
+不包含渲染完成率、DDR 错误计数或实板帧率测量。
+\sourcefile{\path{../Pgl50h/src/imu/}；\path{../Pgl50h/src/control/}}
+
+\section{跨时钟域实现与工程约束}
+\subsection{异步 FIFO 的存储与指针同步}
+采集与显示各使用一份 \path{pose_async_fifo}，默认宽 256 bit、深 512，
+二进制读写指针均为 10 bit（含回绕位），跨域前转换为 Gray 码：
+\begin{equation}
+g=b\oplus(b\gg1).
+\end{equation}
+远端 Gray 指针经两级同步后用于空满判断及本域额度计算。
+读端使用同步 RAM 预取当前或下一队首，只有
+\path{rd_valid && rd_ready} 才前移读指针；停顿时保持队首，
+预取字仍计入占用，不会被写端提前覆盖。
+\path{wr_free} 为写域保守空闲额度，\path{rd_count} 为读域保守占用计数，
+均有跨域同步延迟，不能当作另一时钟域的瞬时状态。
+
+两域共用异步复位断言，各自同步释放；复位丢弃所有 FIFO 数据，
+RAM 内容不清零，只有 valid 和指针决定内容能否读取。
+除 FIFO 外，配置和遥测采用有确认邮箱，IMU 采用事件翻转快照，
+采集完成及显示 epoch 使用专门握手。时序例外只描述时钟关系，不能替代这些同步结构。
+
+\subsection{FDC 与实现检查的对应关系}
+\path{src/constraints/hdmi_ddr3_top.fdc} 为顶层分配引脚、电平标准、
+输入/输出寄存器位置和时钟约束，主要设计关系见表~\ref{tab:fpga-fdc}。
+\begin{table}[htbp]\centering\small
+\caption{RTL 结构与工程时序约束的对应关系}\label{tab:fpga-fdc}
+\begin{tabularx}{\textwidth}{p{3.5cm}p{4.3cm}Y}
+\toprule 对象 & 工程约束 & 对应实现含义 \\\midrule
+主/生成时钟 & 50 MHz、27 MHz、输入周期 6.734 ns；声明视频和 DDR 生成时钟 & 保留 PLL 倍分频及 DDR PHY 时钟来源。\\
+HDMI 输入 & 输入延迟最大 2.000 ns、最小 $-0.500$ ns & 相对于 \path{pixclk_in} 的源同步预算。\\
+输入首级捕获 & 对 RGB、DE、VS 外部到首级路径设置 setup multicycle 0 & 描述同一发射周期的 I/O 寄存捕获；后续内部路径仍为普通单周期。\\
+HDMI 输出 & 输出延迟最大 1.500 ns、最小 $-0.500$ ns；约束时钟反相 & 用反相生成时钟描述 MS7210 下降沿采样，物理输出时钟保持正相。\\
+异步时钟组 & 按板载、输入、视频、DDR PHY 关系划组 & 每条跨域路径对应 FIFO、同步器或厂商 IP 结构。\\
+FIFO Gray 总线 & 四条总线各 10 bit，最大偏斜 6.734 ns & 限制指针位间到达偏斜，独立于异步时钟组审查。\\
+HDMI 输出 I/O & \path{PAP_IO_REGISTER=TRUE} & 缩短 fabric 至管脚路径，并控制 RGB/同步总线偏斜。\\
+\bottomrule
+\end{tabularx}
+\end{table}
+输入同周期捕获依赖当前板级输入时序预算与时钟布线关系，
+更换桥芯片配置、板卡或输入频率时需重新核对该假设。
+PDS 工程通过 \path{ipcore/} 下的 \path{.idf} 引入 PLL 和 DDR3 IP，
+因此重建工程还需保留 IP 配置与 FDC，不能仅复制应用 RTL。
+
+现有 2026 年 10 月 22 日实现归档包含快慢工作角时序及四条 Gray 指针偏斜审计，
+本章用其说明当前代码与约束的组织方式；资源、处理帧率及仿真证据在后续章节分别讨论。
+这些工具结果不代替板卡下载后的端到端验证，当前文档不将其表述为实板测量。
+\sourcefile{\path{../Pgl50h/src/video/pose/pose_async_fifo.v}；\path{../Pgl50h/src/constraints/hdmi_ddr3_top.fdc}；\path{../Pgl50h/verification/20261022_pc_control_sbit.md}}

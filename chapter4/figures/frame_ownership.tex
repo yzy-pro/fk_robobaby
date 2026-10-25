@@ -1,0 +1,23 @@
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}
+\node[fpblock] (cap) at (0,0) {源槽采集（0/3 轮换）\\SOF 锁存姿态并接收像素};
+\node[fpblock] (ready) at (5,0) {完整源帧等待调度\\FIFO 排空、全部采集写结束};
+\node[fpblock] (render) at (10,0) {源槽只读供渲染\\整帧像素与姿态保持不变};
+\draw[fparrow] (cap)--(ready);
+\draw[fparrow] (ready)--(render);
+\draw[fparrow] (render.north)--++(0,0.8)-| (cap.north);
+\node[fpnote,fill=white] at (5,1.0) {前一渲染完成后源槽可再次使用；另一源槽可并行采集};
+\node[fpblock] (write) at (0,-2.5) {空闲结果槽（1/2 轮换）\\选择当前显示槽以外的槽};
+\node[fpblock] (pending) at (5,-2.5) {待发布完整结果\\最后块末行写完成 → done};
+\node[fpblock] (show) at (10,-2.5) {显示持有结果槽\\按独立光栅重复读出};
+\draw[fparrow] (write)--(pending);
+\draw[fparrow] (pending)--(show);
+\draw[fparrow] (show.south)--++(0,-0.9)-| (write.south);
+\node[fpnote,fill=white] at (5,-3.65) {新结果替换显示槽后，旧显示槽方可写入下一结果};
+\node[fpnote,text width=14cm] at (5,-1.2)
+ {发布门槛：显示 VS 请求新 epoch → 旧读事务结束 → 旧 FIFO 排空 → 确认与接受握手};
+\end{tikzpicture}
+\caption{源帧与结果帧的逻辑所有权流转（概念状态，与 RTL 标志及控制状态对应）}
+\label{fig:fpga-frame-ownership}
+\end{figure}
